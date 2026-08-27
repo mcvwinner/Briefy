@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import { makeStyles, tokens } from '@fluentui/react-components'
 import type { Block, Page } from '../../../shared/layout'
 import { mmToPx } from '../utils/units'
+import { renderBlockMarkdown, renderInlineMarkdown } from '../utils/markdown'
 
 /** 解析 Markdown 表格为行列数组；非表格内容返回 null */
 function parseMarkdownTable(text: string): string[][] | null {
@@ -17,7 +18,7 @@ function parseMarkdownTable(text: string): string[][] | null {
   return [rows[0], ...rows.slice(2)]
 }
 
-/** 区块内容渲染：表格类解析为真 table，其余纯文本 */
+/** 区块内容渲染：表格类解析为真 table（单元格支持行内强调），其余支持小标题/首字下沉 */
 function BlockContent({ kind, content }: { kind: string; content: string }): JSX.Element {
   if (kind === 'table') {
     const rows = parseMarkdownTable(content)
@@ -28,7 +29,11 @@ function BlockContent({ kind, content }: { kind: string; content: string }): JSX
             {rows.map((row, ri) => (
               <tr key={ri}>
                 {row.map((cell, ci) =>
-                  ri === 0 ? <th key={ci}>{cell}</th> : <td key={ci}>{cell}</td>
+                  ri === 0 ? (
+                    <th key={ci}>{renderInlineMarkdown(cell, `th${ri}${ci}`)}</th>
+                  ) : (
+                    <td key={ci}>{renderInlineMarkdown(cell, `td${ri}${ci}`)}</td>
+                  )
                 )}
               </tr>
             ))}
@@ -37,7 +42,8 @@ function BlockContent({ kind, content }: { kind: string; content: string }): JSX
       )
     }
   }
-  return <>{content}</>
+  // 纯文字：支持小标题分段 + 首段首字下沉
+  return <>{renderBlockMarkdown(content, { dropCap: true })}</>
 }
 
 const useStyles = makeStyles({
@@ -78,8 +84,7 @@ const useStyles = makeStyles({
     color: tokens.colorNeutralForeground1,
     overflow: 'hidden',
     pointerEvents: 'none',
-    userSelect: 'none',
-    whiteSpace: 'pre-wrap'
+    userSelect: 'none'
   },
   blockStatus: {
     position: 'absolute',

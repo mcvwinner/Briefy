@@ -70,8 +70,14 @@ function buildOutlineSection(context?: DocContext, currentIndex = -1): string {
 /** 拼装单个区块的生成提示词：全局规则 + 版面大纲 + 内容形式要求 + 用户提示词 */
 function buildBlockPrompt(prompt: string, kind: string, context?: DocContext, index = -1): string {
   const kindRules: Record<string, string> = {
-    text: '输出纯文本段落，不要使用 Markdown 标记。',
-    table: '输出一个表格。使用 | 分隔的 Markdown 表格语法，首行为表头。'
+    text: [
+      '输出纯文本（可用轻量排版增强表现力）：',
+      '- 可用 **加粗** 强调关键数字与主体；',
+      '- 较长内容可用 "## 小标题" 分段（每个小标题下接一段）；',
+      '- 首段首字会自动下沉放大，请把最重要的导语放开头；',
+      '- 不要使用其他 Markdown 语法（列表/引用/链接等）。'
+    ].join('\n'),
+    table: '输出一个表格。使用 | 分隔的 Markdown 表格语法，首行为表头；单元格内可用 **加粗** 强调关键数字。'
   }
   const sections = [
     '你是一份个性化报纸的内容作者。请根据要求撰写该区块内容。',
