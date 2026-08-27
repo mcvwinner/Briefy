@@ -32,6 +32,35 @@ const useStyles = makeStyles({
     overflow: 'hidden',
     maxWidth: 'calc(100% - 12px)'
   },
+  blockContent: {
+    position: 'absolute',
+    inset: 0,
+    padding: '8px',
+    fontSize: tokens.fontSizeBase200,
+    lineHeight: '1.5',
+    color: tokens.colorNeutralForeground1,
+    overflow: 'hidden',
+    pointerEvents: 'none',
+    userSelect: 'none',
+    whiteSpace: 'pre-wrap'
+  },
+  blockStatus: {
+    position: 'absolute',
+    bottom: '6px',
+    right: '8px',
+    fontSize: tokens.fontSizeBase200,
+    color: tokens.colorBrandForeground1
+  },
+  blockError: {
+    position: 'absolute',
+    inset: 0,
+    padding: '8px',
+    paddingTop: '26px',
+    fontSize: tokens.fontSizeBase200,
+    color: tokens.colorPaletteRedForeground1,
+    overflow: 'hidden',
+    pointerEvents: 'none'
+  },
   handle: {
     position: 'absolute',
     width: '10px',
@@ -232,6 +261,13 @@ function PageView({
           onPointerDown={(e) => startDrag(e, block, 'move')}
         >
           <span className={styles.blockLabel}>{block.prompt ? block.prompt.slice(0, 20) : '空白区块'}</span>
+          {block.status === 'generating' && (
+            <div className={styles.blockStatus}>生成中…</div>
+          )}
+          {block.status === 'error' && <div className={styles.blockError}>{block.content}</div>}
+          {block.status === 'done' && block.content && (
+            <div className={styles.blockContent}>{block.content}</div>
+          )}
           {selectedBlockId === block.id &&
             HANDLES.map(({ dir, style, cursor }) => (
               <div

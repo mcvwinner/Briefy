@@ -2,6 +2,16 @@
 
 本项目的所有显著变更记录于此。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [0.0.7] - 2026-08-27
+
+### 新增
+
+- **AI 生成流水线（核心功能）**：
+  - 主进程 `ai.ts`：Vercel AI SDK + OpenAI 兼容 Provider，按区块提示词+内容形式组装报纸文风提示词；
+  - IPC `ai:generate-block`：API Key 只在主进程使用，渲染进程不接触密钥；
+  - "生成"按钮并发调度（上限 3 并发），跳过无提示词区块，逐块回填；
+  - 区块状态机：empty → generating → done/error，画布内实时显示"生成中…"/错误信息/生成内容。
+
 ## [0.0.6] - 2026-08-27
 
 ### 修复

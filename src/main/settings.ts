@@ -2,6 +2,7 @@ import { app, ipcMain } from 'electron'
 import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { DEFAULT_SETTINGS, type AiSettings } from '../shared/settings'
+import { generateBlockContent } from './ai'
 
 const SETTINGS_FILE = 'settings.json'
 
@@ -36,4 +37,9 @@ async function writeSettings(settings: AiSettings): Promise<void> {
 export function registerSettingsIpc(): void {
   ipcMain.handle('settings:get', () => readSettings())
   ipcMain.handle('settings:set', (_event, settings: AiSettings) => writeSettings(settings))
+  // 单区块生成：主进程统一持有 Key，渲染进程不接触密钥
+  ipcMain.handle('ai:generate-block', async (_event, prompt: string, kind: string) => {
+    const settings = await readSettings()
+    return generateBlockContent(settings, prompt, kind)
+  })
 }

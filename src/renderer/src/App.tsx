@@ -26,12 +26,14 @@ import StatusBar from './components/StatusBar'
 import SettingsDialog from './components/SettingsDialog'
 import { useLayout } from './hooks/useLayout'
 import type { AiSettings, ThemeMode } from '../../shared/settings'
+import type { Block } from '../../shared/layout'
 
 declare global {
   interface Window {
     briefy?: {
       getSettings(): Promise<AiSettings>
       saveSettings(settings: AiSettings): Promise<void>
+      generateBlock(prompt: string, kind: string): Promise<{ content: string }>
     }
   }
 }
@@ -120,6 +122,42 @@ function App(): JSX.Element {
 
   const hasApiKey = Boolean(settings?.apiKey)
 
+  /** 并发生成所有区块（并发上限 3），逐块回填 */
+  const [generating, setGenerating] = useState(false)
+  const generateAll = async (): Promise<void> => {
+    if (!window.briefy || generating) return
+    setGenerating(true)
+    try {
+      const tasks: { pageId: string; block: Block }[] = []
+      for (const page of layout.doc.pages) {
+        for (const block of page.blocks) {
+          if (!block.prompt.trim()) continue // 无提示词的区块跳过
+          tasks.push({ pageId: page.id, block })
+        }
+      }
+      const CONCURRENCY = 3
+      let cursor = 0
+      const worker = async (): Promise<void> => {
+        while (cursor < tasks.length) {
+          const task = tasks[cursor++]
+          layout.updateBlock(task.pageId, task.block.id, { status: 'generating' })
+          try {
+            const { content } = await window.briefy!.generateBlock(task.block.prompt, task.block.kind)
+            layout.updateBlock(task.pageId, task.block.id, { content, status: 'done' })
+          } catch (err) {
+            layout.updateBlock(task.pageId, task.block.id, {
+              content: err instanceof Error ? err.message : String(err),
+              status: 'error'
+            })
+          }
+        }
+      }
+      await Promise.all(Array.from({ length: Math.min(CONCURRENCY, tasks.length) }, worker))
+    } finally {
+      setGenerating(false)
+    }
+  }
+
   const isDark = settings?.theme === 'dark'
 
   return (
@@ -144,8 +182,13 @@ function App(): JSX.Element {
             </ToolbarButton>
           </Tooltip>
           <Tooltip content="AI 生成所有内容块" relationship="description">
-            <ToolbarButton icon={<WandRegular />} disabled={!hasApiKey}>
-              生成
+            <ToolbarButton
+              icon={<WandRegular />}
+              disabled={!hasApiKey || generating}
+              appearance={hasApiKey ? 'primary' : undefined}
+              onClick={() => void generateAll()}
+            >
+              {generating ? '生成中…' : '生成'}
             </ToolbarButton>
           </Tooltip>
           <Tooltip content={isDark ? '切换到亮色模式' : '切换到暗色模式'} relationship="description">
@@ -208,7 +251,7 @@ function App(): JSX.Element {
           onRemove={layout.removePage}
         />
 
-        <StatusBar version="0.0.6" hasApiKey={hasApiKey} />
+        <StatusBar version="0.0.7" hasApiKey={hasApiKey} />
 
         <SettingsDialog open={settingsOpen} settings={settings} onClose={() => setSettingsOpen(false)} />
       </div>
