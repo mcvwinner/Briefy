@@ -87,13 +87,6 @@ export async function generateBlockContent(
   if (!settings.apiKey) throw new Error('未配置 API Key')
   if (!settings.model) throw new Error('未配置模型名')
 
-  const provider = createOpenAICompatible({
-    name: 'briefy-provider',
-    apiKey: settings.apiKey,
-    // baseUrl 为空时回退到 OpenAI 官方
-    baseURL: settings.baseUrl || 'https://api.openai.com/v1'
-  })
-
   // 手动实现工具调用循环（对各家 OpenAI 兼容端点兼容性最稳）：
   // 第一轮若返回 tool_calls → 执行工具 → 把结果以 role:'tool' 回传 → 再请求直到产出正文
   const url = (settings.baseUrl || 'https://api.openai.com/v1').replace(/\/+$/, '') + '/chat/completions'
