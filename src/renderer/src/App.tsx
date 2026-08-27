@@ -1,8 +1,25 @@
+import Toolbar from './components/Toolbar'
+import PageCanvas from './components/PageCanvas'
+import PropertiesPanel from './components/PropertiesPanel'
+import StatusBar from './components/StatusBar'
+
+declare global {
+  interface Window {
+    briefy?: { version: string }
+  }
+}
+
+const APP_VERSION = window.briefy?.version ?? '0.0.2'
+
 function App(): JSX.Element {
   return (
     <div className="app">
-      <header className="titlebar">Briefy</header>
-      <main className="workspace">工作区已就绪（骨架占位）</main>
+      <Toolbar />
+      <div className="workspace">
+        <PageCanvas />
+        <PropertiesPanel />
+      </div>
+      <StatusBar version={APP_VERSION} />
     </div>
   )
 }

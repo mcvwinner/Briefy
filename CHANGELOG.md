@@ -2,6 +2,18 @@
 
 本项目的所有显著变更记录于此。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [0.0.2] - 2026-08-27
+
+### 新增
+
+- Word 风格主框架：顶部工具栏（新建/打开/保存/添加内容/生成/设置）+ 中央 A4 画布 + 右侧属性面板 + 底部状态栏；
+- A4 页面渲染组件（mm→px 换算，1mm ≈ 3.7795px @96dpi）；
+- 依赖安装：Electron 44 / React 19 / Vite 7 / electron-vite 5（npmmirror 镜像，含 Electron 二进制镜像下载）。
+
+### 修复
+
+- 无（首个功能版本）。
+
 ## [0.0.1] - 2026-08-27
 
 ### 新增
