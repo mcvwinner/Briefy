@@ -23,10 +23,12 @@ interface SettingsDialogProps {
   open: boolean
   settings: AiSettings | null
   onClose: () => void
+  /** 保存成功后回传最新配置 */
+  onSaved?: (settings: AiSettings) => void
 }
 
 /** AI 服务设置弹窗：API Key / Base URL / 模型名 */
-function SettingsDialog({ open, settings, onClose }: SettingsDialogProps): JSX.Element | null {
+function SettingsDialog({ open, settings, onClose, onSaved }: SettingsDialogProps): JSX.Element | null {
   const styles = useStyles()
   const [apiKey, setApiKey] = useState('')
   const [baseUrl, setBaseUrl] = useState('')
@@ -44,17 +46,27 @@ function SettingsDialog({ open, settings, onClose }: SettingsDialogProps): JSX.E
   if (!open) return null
 
   const save = async (): Promise<void> => {
-    if (!window.briefy) {
-      // 非 Electron 环境（如浏览器直开 dev server）无法持久化
-      onClose()
-      return
+    const updated: AiSettings = {
+      apiKey: apiKey.trim(),
+      baseUrl: baseUrl.trim(),
+      model: model.trim(),
+      theme: settings?.theme ?? 'light'
     }
-    await window.briefy.saveSettings({ apiKey: apiKey.trim(), baseUrl: baseUrl.trim(), model: model.trim() })
-    onClose()
+    try {
+      if (window.briefy) {
+        await window.briefy.saveSettings(updated)
+        onSaved?.(updated)
+      }
+      onClose()
+    } catch (err) {
+      // IPC 失败也要保证弹窗可关闭，并暴露错误信息
+      console.error('保存设置失败', err)
+      onClose()
+    }
   }
 
   return (
-    <Dialog modalType="alert" open={open}>
+    <Dialog open={open} onOpenChange={(_, data) => { if (!data.open) onClose() }}>
       <DialogSurface>
         <DialogBody>
           <DialogTitle>AI 服务设置</DialogTitle>

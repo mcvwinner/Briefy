@@ -251,9 +251,14 @@ function App(): JSX.Element {
           onRemove={layout.removePage}
         />
 
-        <StatusBar version="0.0.7" hasApiKey={hasApiKey} />
+        <StatusBar version="0.0.8" hasApiKey={hasApiKey} />
 
-        <SettingsDialog open={settingsOpen} settings={settings} onClose={() => setSettingsOpen(false)} />
+        <SettingsDialog
+          open={settingsOpen}
+          settings={settings}
+          onClose={() => setSettingsOpen(false)}
+          onSaved={(updated) => setSettings(updated)}
+        />
       </div>
     </FluentProvider>
   )
