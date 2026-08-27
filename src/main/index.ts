@@ -1,5 +1,6 @@
 import { app, BrowserWindow, shell } from 'electron'
 import { join } from 'node:path'
+import { registerSettingsIpc } from './settings'
 
 function createMainWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -30,6 +31,7 @@ function createMainWindow(): void {
 }
 
 app.whenReady().then(() => {
+  registerSettingsIpc()
   createMainWindow()
 
   app.on('activate', () => {

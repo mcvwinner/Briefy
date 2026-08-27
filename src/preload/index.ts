@@ -1,4 +1,11 @@
-import { contextBridge } from 'electron'
+import { contextBridge, ipcRenderer } from 'electron'
+import type { AiSettings } from '../shared/settings'
 
-// 后续通过 contextBridge.exposeInMainWorld 暴露文件读写、设置存储等 API
-contextBridge.exposeInMainWorld('briefy', { version: '0.0.2' })
+const api = {
+  getSettings: (): Promise<AiSettings> => ipcRenderer.invoke('settings:get'),
+  saveSettings: (settings: AiSettings): Promise<void> => ipcRenderer.invoke('settings:set', settings)
+}
+
+export type BriefyApi = typeof api
+
+contextBridge.exposeInMainWorld('briefy', api)

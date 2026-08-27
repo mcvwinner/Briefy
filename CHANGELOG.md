@@ -2,6 +2,20 @@
 
 本项目的所有显著变更记录于此。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [0.0.3] - 2026-08-27
+
+### 新增
+
+- **UI 全面迁移到 Fluent UI v9**（@fluentui/react-components + react-icons），对齐 Word/Win11 视觉风格；
+- 设置弹窗：AI 服务配置（API Key / Base URL / 模型名），保存按钮在 Key 为空时禁用；
+- 主进程 IPC：`settings:get` / `settings:set`，配置持久化到 userData 目录的 `settings.json`，读取时过滤脏字段；
+- 预加载桥暴露类型安全的 `window.briefy` API（getSettings/saveSettings）；
+- 工具栏联动：未配置 API Key 时"添加内容/生成"禁用、设置按钮显示高亮提醒，状态栏显示 AI 配置状态。
+
+### 修复
+
+- 图标名错误（`FileAddRegular` → `DocumentAddRegular`）导致构建失败。
+
 ## [0.0.2] - 2026-08-27
 
 ### 新增
