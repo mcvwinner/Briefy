@@ -14,10 +14,11 @@ import {
   WandRegular,
   SettingsRegular
 } from '@fluentui/react-icons'
-import PageCanvas from './components/PageCanvas'
+import PageView from './components/PageView'
 import PropertiesPanel from './components/PropertiesPanel'
 import StatusBar from './components/StatusBar'
 import SettingsDialog from './components/SettingsDialog'
+import { useLayout } from './hooks/useLayout'
 import type { AiSettings } from '../../shared/settings'
 
 declare global {
@@ -29,11 +30,24 @@ declare global {
 function App(): JSX.Element {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settings, setSettings] = useState<AiSettings | null>(null)
+  // "添加内容"框选模式
+  const [drawing, setDrawing] = useState(false)
 
-  // 启动时读取已保存的 AI 配置
+  const layout = useLayout()
+
   useEffect(() => {
     void window.briefy?.getSettings().then(setSettings).catch(() => setSettings(null))
   }, [])
+
+  // Delete 键删除选中区块
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if (e.key !== 'Delete' || !layout.selection) return
+      layout.removeBlock(layout.selection.page.id, layout.selection.block.id)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [layout])
 
   const hasApiKey = Boolean(settings?.apiKey)
 
@@ -51,8 +65,12 @@ function App(): JSX.Element {
             <ToolbarButton icon={<SaveRegular />}>保存</ToolbarButton>
           </Tooltip>
           <Tooltip content="在页面上框选一块内容区域" relationship="description">
-            <ToolbarButton icon={<AddSquareRegular />} disabled={!hasApiKey}>
-              添加内容
+            <ToolbarButton
+              icon={<AddSquareRegular />}
+              appearance={drawing ? 'primary' : undefined}
+              onClick={() => setDrawing(!drawing)}
+            >
+              {drawing ? '点击页面框选…' : '添加内容'}
             </ToolbarButton>
           </Tooltip>
           <Tooltip content="AI 生成所有内容块" relationship="description">
@@ -72,11 +90,37 @@ function App(): JSX.Element {
         </FluentToolbar>
 
         <div className="workspace">
-          <PageCanvas />
-          <PropertiesPanel />
+          <div className="canvas-scroll">
+            {layout.doc.pages.map((page) => (
+              <PageView
+                key={page.id}
+                page={page}
+                selectedBlockId={layout.selectedBlockId}
+                drawRect={drawing ? (rect) => {
+                  layout.addBlock(page.id, rect.x, rect.y, rect.width, rect.height)
+                  setDrawing(false)
+                } : undefined}
+                onSelectBlock={layout.selectBlock}
+                onChangeBlock={(blockId, patch) => layout.updateBlock(page.id, blockId, patch)}
+              />
+            ))}
+          </div>
+          <PropertiesPanel
+            block={layout.selection?.block ?? null}
+            onChange={(patch) => {
+              if (layout.selection) {
+                layout.updateBlock(layout.selection.page.id, layout.selection.block.id, patch)
+              }
+            }}
+            onRemove={() => {
+              if (layout.selection) {
+                layout.removeBlock(layout.selection.page.id, layout.selection.block.id)
+              }
+            }}
+          />
         </div>
 
-        <StatusBar version="0.0.3" hasApiKey={hasApiKey} />
+        <StatusBar version="0.0.4" hasApiKey={hasApiKey} />
 
         <SettingsDialog open={settingsOpen} settings={settings} onClose={() => setSettingsOpen(false)} />
       </div>

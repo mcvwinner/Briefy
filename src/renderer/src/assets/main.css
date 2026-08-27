@@ -74,15 +74,82 @@ body {
   padding: 32px;
 }
 
-.a4-sheet {
-  margin: 0 auto;
-  background: var(--surface);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+/* ---------- A4 画布与区块 ---------- */
+.canvas-scroll {
+  flex: 1;
+  overflow: auto;
+  padding: 32px;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: center;
+  gap: 24px;
+}
+
+.a4-sheet {
+  position: relative;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  flex-shrink: 0;
+  /* 框选模式下显示十字光标 */
+}
+
+.block {
+  position: absolute;
+  background: rgba(24, 90, 189, 0.04);
+  border: 1px dashed #a0a0a0;
+  border-radius: 2px;
+  cursor: move;
+  overflow: visible;
+}
+
+.block-selected {
+  border: 2px solid var(--accent);
+  background: rgba(24, 90, 189, 0.07);
+}
+
+.block-label {
+  position: absolute;
+  top: 4px;
+  left: 6px;
+  font-size: 11px;
   color: var(--text-muted);
-  font-size: 14px;
+  pointer-events: none;
+  white-space: nowrap;
+  overflow: hidden;
+  max-width: calc(100% - 12px);
+}
+
+.handle {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  background: #fff;
+  border: 1px solid var(--accent);
+  border-radius: 50%;
+  z-index: 10;
+}
+
+.marquee {
+  position: absolute;
+  border: 1.5px dashed var(--accent);
+  background: rgba(24, 90, 189, 0.08);
+  pointer-events: none;
+}
+
+.delete-btn {
+  width: 100%;
+  padding: 6px;
+  margin-top: 8px;
+  border: 1px solid #d13438;
+  color: #d13438;
+  background: transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.delete-btn:hover {
+  background: rgba(209, 52, 56, 0.08);
 }
 
 .properties-panel {
