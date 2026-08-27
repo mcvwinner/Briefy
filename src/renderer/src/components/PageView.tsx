@@ -1,6 +1,53 @@
 import { useRef, useState } from 'react'
+import { makeStyles, tokens } from '@fluentui/react-components'
 import type { Block, Page } from '../../../shared/layout'
 import { mmToPx } from '../utils/units'
+
+const useStyles = makeStyles({
+  sheet: {
+    position: 'relative',
+    backgroundColor: tokens.colorNeutralBackground1,
+    boxShadow: tokens.shadow16,
+    flexShrink: 0
+  },
+  block: {
+    position: 'absolute',
+    backgroundColor: tokens.colorBrandBackground2,
+    border: `1px dashed ${tokens.colorNeutralStroke1}`,
+    borderRadius: tokens.borderRadiusSmall,
+    cursor: 'move'
+  },
+  blockSelected: {
+    outline: `2px solid ${tokens.colorBrandStroke1}`,
+    outlineOffset: '-2px'
+  },
+  blockLabel: {
+    position: 'absolute',
+    top: '4px',
+    left: '6px',
+    fontSize: tokens.fontSizeBase200,
+    color: tokens.colorNeutralForeground3,
+    pointerEvents: 'none',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    maxWidth: 'calc(100% - 12px)'
+  },
+  handle: {
+    position: 'absolute',
+    width: '10px',
+    height: '10px',
+    backgroundColor: tokens.colorNeutralBackground1,
+    border: `1px solid ${tokens.colorBrandStroke1}`,
+    borderRadius: '50%',
+    zIndex: 10
+  },
+  marquee: {
+    position: 'absolute',
+    border: `1.5px dashed ${tokens.colorBrandStroke1}`,
+    backgroundColor: tokens.colorBrandBackground2,
+    pointerEvents: 'none'
+  }
+})
 
 /** 8 个缩放手柄方向 */
 type Handle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w'
@@ -53,6 +100,7 @@ function PageView({
   const sheetRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<DragState | null>(null)
   const [marquee, setMarquee] = useState<Rect | null>(null)
+  const styles = useStyles()
 
   /** 屏幕坐标 → 页面内 mm 坐标 */
   const toMm = (clientX: number, clientY: number): { x: number; y: number } | null => {
@@ -167,14 +215,14 @@ function PageView({
   return (
     <div
       ref={sheetRef}
-      className="a4-sheet"
+      className={styles.sheet}
       style={{ width: mmToPx(210), height: mmToPx(297) }}
       onPointerDown={startMarquee}
     >
       {page.blocks.map((block) => (
         <div
           key={block.id}
-          className={`block ${selectedBlockId === block.id ? 'block-selected' : ''}`}
+          className={`${styles.block} ${selectedBlockId === block.id ? styles.blockSelected : ''}`}
           style={{
             left: mmToPx(block.x),
             top: mmToPx(block.y),
@@ -183,19 +231,19 @@ function PageView({
           }}
           onPointerDown={(e) => startDrag(e, block, 'move')}
         >
-          <span className="block-label">{block.prompt ? block.prompt.slice(0, 20) : '空白区块'}</span>
+          <span className={styles.blockLabel}>{block.prompt ? block.prompt.slice(0, 20) : '空白区块'}</span>
           {selectedBlockId === block.id &&
             HANDLES.map(({ dir, style, cursor }) => (
               <div
                 key={dir}
-                className="handle"
+                className={styles.handle}
                 style={{ ...style, cursor }}
                 onPointerDown={(e) => startDrag(e, block, dir)}
               />
             ))}
         </div>
       ))}
-      {marquee && <div className="marquee" style={{ left: mmToPx(marquee.x), top: mmToPx(marquee.y), width: mmToPx(marquee.width), height: mmToPx(marquee.height) }} />}
+      {marquee && <div className={styles.marquee} style={{ left: mmToPx(marquee.x), top: mmToPx(marquee.y), width: mmToPx(marquee.width), height: mmToPx(marquee.height) }} />}
     </div>
   )
 }

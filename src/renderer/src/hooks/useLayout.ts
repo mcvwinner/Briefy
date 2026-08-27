@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from 'react'
 import {
   createBlock,
   createEmptyDoc,
+  createEmptyPage,
   type Block,
   type LayoutDoc,
   type Page
@@ -22,6 +23,7 @@ function clamp(value: number, min: number, max: number): number {
 export function useLayout() {
   const [doc, setDoc] = useState<LayoutDoc>(createEmptyDoc)
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null)
+  const [currentPageId, setCurrentPageId] = useState<string>(() => doc.pages[0].id)
 
   const updatePage = useCallback((pageId: string, updater: (page: Page) => Page) => {
     setDoc((prev) => ({
@@ -66,13 +68,22 @@ export function useLayout() {
   )
 
   const addPage = useCallback((): void => {
-    setDoc((prev) => ({ ...prev, pages: [...prev.pages, createEmptyPage()] }))
+    setDoc((prev) => {
+      const page = createEmptyPage()
+      setCurrentPageId(page.id)
+      return { ...prev, pages: [...prev.pages, page] }
+    })
   }, [])
 
   const removePage = useCallback((pageId: string): void => {
     setDoc((prev) => {
       if (prev.pages.length <= 1) return prev // 至少保留一页
-      return { ...prev, pages: prev.pages.filter((p) => p.id !== pageId) }
+      const idx = prev.pages.findIndex((p) => p.id === pageId)
+      const pages = prev.pages.filter((p) => p.id !== pageId)
+      // 若删除的是当前页，跳到相邻页
+      const next = pages[Math.min(idx, pages.length - 1)]
+      setCurrentPageId(next.id)
+      return { ...prev, pages }
     })
   }, [])
 
@@ -89,6 +100,8 @@ export function useLayout() {
     doc,
     selection,
     selectedBlockId,
+    currentPageId,
+    setCurrentPageId,
     selectBlock: setSelectedBlockId,
     addBlock,
     updateBlock,

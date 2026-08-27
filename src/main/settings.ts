@@ -15,11 +15,12 @@ async function readSettings(): Promise<AiSettings> {
     const parsed: unknown = JSON.parse(raw)
     // 只取已知字段，防止文件被手改出脏数据
     if (parsed && typeof parsed === 'object') {
-      const { apiKey = '', baseUrl = '', model = '' } = parsed as Record<string, unknown>
+      const { apiKey = '', baseUrl = '', model = '', theme = 'light' } = parsed as Record<string, unknown>
       return {
         apiKey: typeof apiKey === 'string' ? apiKey : '',
         baseUrl: typeof baseUrl === 'string' ? baseUrl : '',
-        model: typeof model === 'string' ? model : ''
+        model: typeof model === 'string' ? model : '',
+        theme: theme === 'dark' ? 'dark' : 'light'
       }
     }
   } catch {

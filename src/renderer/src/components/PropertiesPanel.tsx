@@ -1,4 +1,13 @@
-import { Dropdown, SpinButton, Textarea, makeStyles } from '@fluentui/react-components'
+import {
+  Button,
+  Dropdown,
+  Field,
+  SpinButton,
+  Textarea,
+  makeStyles,
+  tokens
+} from '@fluentui/react-components'
+import { DeleteRegular } from '@fluentui/react-icons'
 import type { Block, BlockKind } from '../../../shared/layout'
 
 const KIND_OPTIONS = [
@@ -9,9 +18,27 @@ const KIND_OPTIONS = [
 ] as const
 
 const useStyles = makeStyles({
-  field: { display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '12px' },
-  label: { fontSize: '12px', color: '#616161' },
-  promptArea: { minHeight: '120px' }
+  panel: {
+    width: '280px',
+    padding: '16px',
+    backgroundColor: tokens.colorNeutralBackground2,
+    borderLeft: `1px solid ${tokens.colorNeutralStroke2}`,
+    flexShrink: 0
+  },
+  title: {
+    margin: '0 0 12px',
+    fontSize: tokens.fontSizeBase400,
+    fontWeight: tokens.fontWeightSemibold,
+    color: tokens.colorNeutralForeground1
+  },
+  hint: { fontSize: tokens.fontSizeBase200, color: tokens.colorNeutralForeground3 },
+  fieldGap: { marginBottom: '4px' },
+  promptArea: { minHeight: '120px' },
+  sizeRow: { display: 'flex', gap: '8px' },
+  deleteBtn: {
+    marginTop: '12px',
+    color: tokens.colorPaletteRedForeground1
+  }
 })
 
 interface PropertiesPanelProps {
@@ -26,29 +53,27 @@ function PropertiesPanel({ block, onChange, onRemove }: PropertiesPanelProps): J
 
   if (!block) {
     return (
-      <aside className="properties-panel">
-        <h2 className="panel-title">属性</h2>
-        <p className="panel-hint">选中内容块后在此编辑提示词与样式</p>
+      <aside className={styles.panel}>
+        <h2 className={styles.title}>属性</h2>
+        <p className={styles.hint}>选中内容块后在此编辑提示词与样式</p>
       </aside>
     )
   }
 
   return (
-    <aside className="properties-panel">
-      <h2 className="panel-title">区块属性</h2>
+    <aside className={styles.panel}>
+      <h2 className={styles.title}>区块属性</h2>
 
-      <div className={styles.field}>
-        <label className={styles.label}>提示词（想让 AI 填什么）</label>
+      <Field label="提示词（想让 AI 填什么）" className={styles.fieldGap}>
         <Textarea
           className={styles.promptArea}
           placeholder="例：总结今日头条科技新闻，200 字以内"
           value={block.prompt}
           onChange={(_, data) => onChange({ prompt: data.value })}
         />
-      </div>
+      </Field>
 
-      <div className={styles.field}>
-        <label className={styles.label}>内容形式</label>
+      <Field label="内容形式" className={styles.fieldGap}>
         <Dropdown
           value={KIND_OPTIONS.find((k) => k.value === block.kind)?.text ?? '纯文字'}
           selectedOptions={[block.kind]}
@@ -60,11 +85,10 @@ function PropertiesPanel({ block, onChange, onRemove }: PropertiesPanelProps): J
             </option>
           ))}
         </Dropdown>
-      </div>
+      </Field>
 
-      <div className={styles.field}>
-        <label className={styles.label}>尺寸（mm）</label>
-        <div style={{ display: 'flex', gap: '8px' }}>
+      <Field label="尺寸（mm）" className={styles.fieldGap}>
+        <div className={styles.sizeRow}>
           <SpinButton
             value={Math.round(block.width)}
             min={15}
@@ -86,11 +110,16 @@ function PropertiesPanel({ block, onChange, onRemove }: PropertiesPanelProps): J
             }}
           />
         </div>
-      </div>
+      </Field>
 
-      <button className="delete-btn" onClick={onRemove} type="button">
+      <Button
+        className={styles.deleteBtn}
+        icon={<DeleteRegular />}
+        appearance="subtle"
+        onClick={onRemove}
+      >
         删除此区块（Delete）
-      </button>
+      </Button>
     </aside>
   )
 }

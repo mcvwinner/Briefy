@@ -14,15 +14,6 @@ import {
 } from '@fluentui/react-components'
 import type { AiSettings } from '../../shared/settings'
 
-declare global {
-  interface Window {
-    briefy?: {
-      getSettings(): Promise<AiSettings>
-      saveSettings(settings: AiSettings): Promise<void>
-    }
-  }
-}
-
 const useStyles = makeStyles({
   apiKeyInput: { width: '100%' },
   hint: { marginTop: '4px', fontSize: '12px' }

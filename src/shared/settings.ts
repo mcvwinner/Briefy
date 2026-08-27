@@ -1,4 +1,4 @@
-/** AI 服务配置（OpenAI 兼容格式），持久化在应用 userData 目录 */
+/** AI 服务配置 + 外观偏好，持久化在应用 userData 目录 */
 export interface AiSettings {
   /** API 密钥 */
   apiKey: string
@@ -6,10 +6,15 @@ export interface AiSettings {
   baseUrl: string
   /** 模型名，如 gpt-4o-mini */
   model: string
+  /** 界面主题 */
+  theme: ThemeMode
 }
+
+export type ThemeMode = 'light' | 'dark'
 
 export const DEFAULT_SETTINGS: AiSettings = {
   apiKey: '',
   baseUrl: '',
-  model: ''
+  model: '',
+  theme: 'light'
 }

@@ -2,6 +2,28 @@
 
 本项目的所有显著变更记录于此。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [0.0.5] - 2026-08-27
+
+### 新增
+
+- **多页管理**：底部 Word 式页签栏，添加/切换/删除页面（至少保留一页），删除当前页自动跳转相邻页；
+- **暗色模式**（Fluent 设计要求项）：
+  - 主题模型升级为 `webLightTheme` / `webDarkTheme`（更贴近 Win11 应用风格）；
+  - 工具栏一键亮/暗切换，偏好持久化到 settings.json，Electron 重启后保留。
+
+### 改进（Fluent 化打磨）
+
+- 配色全面迁移到 Fluent Design Token（`colorNeutralBackground*`、`colorBrandStroke1` 等），消灭硬编码十六进制色值；
+- 状态栏从"蓝底白字"改为 Fluent 浅灰细底 + 语义色状态图标（绿=已配置/红=未配置）；
+- 属性面板改用 `Field` 规范组件 + token 间距排版，删除按钮改用 Fluent Button（红色语义）；
+- A4 纸/区块/缩放手柄/框选虚线全部使用 Griffel token 样式，暗色下自动适配；
+- 主题 `teamsLightTheme` → `webLightTheme`。
+
+### 修复
+
+- Griffel 不支持 CSS shorthand（border/borderStyle/borderColor 拆分为四边写法）；
+- 页面 Hook 条件调用警告；未加载设置时切主题不再覆盖已保存的 API Key。
+
 ## [0.0.4] - 2026-08-27
 
 ### 新增
