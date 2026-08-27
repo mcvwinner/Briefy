@@ -2,6 +2,11 @@ import { useEffect, useState } from 'react'
 import {
   FluentProvider,
   makeStyles,
+  Menu,
+  MenuItem,
+  MenuList,
+  MenuPopover,
+  MenuTrigger,
   tokens,
   Toolbar as FluentToolbar,
   ToolbarButton,
@@ -18,7 +23,8 @@ import {
   SettingsRegular,
   WeatherMoonRegular,
   WeatherSunnyRegular,
-  DocumentPdfRegular
+  DocumentPdfRegular,
+  AppsRegular
 } from '@fluentui/react-icons'
 import PageView from './components/PageView'
 import PageTabs from './components/PageTabs'
@@ -28,6 +34,7 @@ import SettingsDialog from './components/SettingsDialog'
 import { useLayout } from './hooks/useLayout'
 import type { AiSettings, ThemeMode } from '../../shared/settings'
 import type { Block, LayoutDoc } from '../../shared/layout'
+import { PRESETS, buildDocFromPreset } from '../../shared/presets'
 
 declare global {
   interface Window {
@@ -183,6 +190,12 @@ function App(): JSX.Element {
     await window.briefy?.exportPdf()
   }
 
+  /** 套用排版预设 */
+  const applyPreset = (presetId: string): void => {
+    const preset = PRESETS.find((p) => p.id === presetId)
+    if (preset) layout.loadDoc(buildDocFromPreset(preset))
+  }
+
   // 打印模式：仅渲染所有页面的干净版式，供 printToPDF 截取
   if (PRINT_MODE) {
     return (
@@ -212,26 +225,29 @@ function App(): JSX.Element {
   return (
     <FluentProvider theme={isDark ? webDarkTheme : webLightTheme} style={{ height: '100vh' }}>
       <div className={`${styles.app} ${isDark ? 'theme-dark' : 'theme-light'}`}>
-        <FluentToolbar aria-label="主工具栏" className={styles.toolbar}>          <Tooltip content="新建文档" relationship="description">
-            <ToolbarButton icon={<DocumentAddRegular />} onClick={layout.newDoc}>
-              新建
-            </ToolbarButton>
-          </Tooltip>
-          <Tooltip content="打开设计文件" relationship="description">
-            <ToolbarButton icon={<FolderOpenRegular />} onClick={() => void openDoc()}>
-              打开
-            </ToolbarButton>
-          </Tooltip>
-          <Tooltip content="保存设计" relationship="description">
-            <ToolbarButton icon={<SaveRegular />} onClick={() => void saveDoc()}>
-              保存
-            </ToolbarButton>
-          </Tooltip>
-          <Tooltip content="导出 PDF" relationship="description">
-            <ToolbarButton icon={<DocumentPdfRegular />} onClick={() => void exportPdf()}>
-              导出 PDF
-            </ToolbarButton>
-          </Tooltip>
+        <FluentToolbar aria-label="主工具栏" className={styles.toolbar}>
+          {/* ---- 文件二级菜单：新建/打开/保存/导出 ---- */}
+          <Menu>
+            <MenuTrigger disableButtonEnhancement>
+              <ToolbarButton icon={<FolderOpenRegular />}>文件</ToolbarButton>
+            </MenuTrigger>
+            <MenuPopover>
+              <MenuList>
+                <MenuItem icon={<DocumentAddRegular />} onClick={layout.newDoc}>
+                  新建
+                </MenuItem>
+                <MenuItem icon={<FolderOpenRegular />} onClick={() => void openDoc()}>
+                  打开…
+                </MenuItem>
+                <MenuItem icon={<SaveRegular />} onClick={() => void saveDoc()}>
+                  保存…
+                </MenuItem>
+                <MenuItem icon={<DocumentPdfRegular />} onClick={() => void exportPdf()}>
+                  导出 PDF…
+                </MenuItem>
+              </MenuList>
+            </MenuPopover>
+          </Menu>
           <Tooltip content="在页面上框选一块内容区域" relationship="description">
             <ToolbarButton
               icon={<AddSquareRegular />}
@@ -241,6 +257,25 @@ function App(): JSX.Element {
               {drawing ? '点击页面框选…' : '添加内容'}
             </ToolbarButton>
           </Tooltip>
+          <Menu>
+            <MenuTrigger disableButtonEnhancement>
+              <ToolbarButton icon={<AppsRegular />}>预设</ToolbarButton>
+            </MenuTrigger>
+            <MenuPopover>
+              <MenuList>
+                {PRESETS.map((preset) => (
+                  <MenuItem key={preset.id} onClick={() => applyPreset(preset.id)}>
+                    <div>
+                      <div>{preset.name}</div>
+                      <div style={{ fontSize: 11, color: tokens.colorNeutralForeground3 }}>
+                        {preset.description}
+                      </div>
+                    </div>
+                  </MenuItem>
+                ))}
+              </MenuList>
+            </MenuPopover>
+          </Menu>
           <Tooltip content="AI 生成所有内容块" relationship="description">
             <ToolbarButton
               icon={<WandRegular />}
@@ -311,7 +346,7 @@ function App(): JSX.Element {
           onRemove={layout.removePage}
         />
 
-        <StatusBar version="0.2.0" hasApiKey={hasApiKey} />
+        <StatusBar version="0.2.1" hasApiKey={hasApiKey} />
 
         <SettingsDialog
           open={settingsOpen}
