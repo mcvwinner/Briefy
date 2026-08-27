@@ -2,6 +2,19 @@
 
 本项目的所有显著变更记录于此。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [0.1.0] - 2026-08-27
+
+首个可用版本 🎉
+
+### 新增
+
+- **AI 工具系统**：内置 `getCurrentTime` 工具（AI SDK tool calling + zod schema），AI 需要时间信息时自主调用，最多 5 步工具循环；为后续联网搜索/生图等区块级工具配置打好架构基础。
+
+### 修复
+
+- 暗色模式下 Windows 原生标题栏不变色：保存主题时同步 `nativeTheme.themeSource`，启动时恢复；
+- 区块提示词标签与 AI 生成内容重叠：生成完成后隐藏标签。
+
 ## [0.0.9] - 2026-08-27
 
 ### 修复

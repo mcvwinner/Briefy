@@ -1,7 +1,7 @@
-import { app, ipcMain } from 'electron'
+import { app, ipcMain, nativeTheme } from 'electron'
 import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { DEFAULT_SETTINGS, type AiSettings } from '../shared/settings'
+import { DEFAULT_SETTINGS, type AiSettings, type ThemeMode } from '../shared/settings'
 import { generateBlockContent } from './ai'
 
 const SETTINGS_FILE = 'settings.json'
@@ -32,6 +32,8 @@ async function readSettings(): Promise<AiSettings> {
 
 async function writeSettings(settings: AiSettings): Promise<void> {
   await writeFile(settingsPath(), JSON.stringify(settings, null, 2), 'utf-8')
+  // 同步到系统级主题，让原生标题栏/对话框跟随亮暗模式
+  nativeTheme.themeSource = settings.theme
 }
 
 export function registerSettingsIpc(): void {
@@ -41,5 +43,9 @@ export function registerSettingsIpc(): void {
   ipcMain.handle('ai:generate-block', async (_event, prompt: string, kind: string) => {
     const settings = await readSettings()
     return generateBlockContent(settings, prompt, kind)
+  })
+  // 启动时按已保存的偏好恢复系统主题
+  void readSettings().then((s) => {
+    nativeTheme.themeSource = s.theme as ThemeMode
   })
 }

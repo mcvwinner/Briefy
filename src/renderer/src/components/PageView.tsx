@@ -260,10 +260,13 @@ function PageView({
           }}
           onPointerDown={(e) => startDrag(e, block, 'move')}
         >
-          <span className={styles.blockLabel}>{block.prompt ? block.prompt.slice(0, 20) : '空白区块'}</span>
-          {block.status === 'generating' && (
-            <div className={styles.blockStatus}>生成中…</div>
+          {/* 有正文时隐藏左上角标签，避免与生成内容重叠 */}
+          {!(block.status === 'done' && block.content) && (
+            <span className={styles.blockLabel}>
+              {block.prompt ? block.prompt.slice(0, 20) : '空白区块'}
+            </span>
           )}
+          {block.status === 'generating' && <div className={styles.blockStatus}>生成中…</div>}
           {block.status === 'error' && <div className={styles.blockError}>{block.content}</div>}
           {block.status === 'done' && block.content && (
             <div className={styles.blockContent}>{block.content}</div>
