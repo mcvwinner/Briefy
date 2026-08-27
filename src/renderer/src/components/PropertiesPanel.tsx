@@ -1,8 +1,13 @@
 import {
+  Accordion,
+  AccordionItem,
+  AccordionHeader,
+  AccordionPanel,
   Button,
   Checkbox,
   Dropdown,
   Field,
+  Input,
   Option,
   SpinButton,
   Textarea,
@@ -10,7 +15,10 @@ import {
   tokens
 } from '@fluentui/react-components'
 import { DeleteRegular } from '@fluentui/react-icons'
+import { useState } from 'react'
 import type { Block, BlockKind, ToolId } from '../../../shared/layout'
+import { listWidgetInstances, updateWidgetInstance } from '../utils/widget-edit'
+import { WIDGET_REGISTRY } from '../../../shared/widgets'
 
 /** 工具勾选选项（与主进程 ai.ts 的 buildTools 一一对应） */
 const TOOL_OPTIONS: { id: ToolId; label: string; hint?: string }[] = [
@@ -110,6 +118,8 @@ function PropertiesPanel({ block, onChange, onRemove }: PropertiesPanelProps): J
         ))}
       </Field>
 
+      <WidgetEditor block={block} onChange={onChange} />
+
       <Field label="尺寸（mm）" className={styles.fieldGap}>
         <div className={styles.sizeRow}>
           <SpinButton
@@ -144,6 +154,53 @@ function PropertiesPanel({ block, onChange, onRemove }: PropertiesPanelProps): J
         删除此区块（Delete）
       </Button>
     </aside>
+  )
+}
+
+/** 控件实例编辑区：列出内容中的控件，展开即表单化改参（用户参与的核心入口） */
+function WidgetEditor({
+  block,
+  onChange
+}: {
+  block: Block
+  onChange: (patch: Partial<Block>) => void
+}): JSX.Element | null {
+  const [openLine, setOpenLine] = useState<number | null>(null)
+  const content = block.content ?? ''
+  const instances = listWidgetInstances(content)
+  if (instances.length === 0) return null
+
+  const updateParam = (lineIndex: number, params: Record<string, string>): void => {
+    onChange({ content: updateWidgetInstance(content, lineIndex, params) })
+  }
+
+  return (
+    <Field label={`控件实例（${instances.length}）`} className={styles.fieldGap}>
+      <Accordion openItems={openLine} onToggle={(_, d) => setOpenLine(d.openItems as number)}>
+        {instances.map(({ lineIndex, id, params }) => {
+          const def = WIDGET_REGISTRY[id]
+          return (
+            <AccordionItem key={lineIndex} value={lineIndex}>
+              <AccordionHeader>
+                {def?.name ?? id} · {String(params[Object.keys(params)[0] ?? ''] ?? '').slice(0, 12)}
+              </AccordionHeader>
+              <AccordionPanel>
+                {Object.entries(def?.params ?? {}).map(([key, meta]) => (
+                  <Field key={key} label={`${key}（${meta.desc}）`} size="small">
+                    <Input
+                      size="small"
+                      value={params[key] ?? ''}
+                      placeholder={meta.example}
+                      onChange={(_, d) => updateParam(lineIndex, { ...params, [key]: d.value })}
+                    />
+                  </Field>
+                ))}
+              </AccordionPanel>
+            </AccordionItem>
+          )
+        })}
+      </Accordion>
+    </Field>
   )
 }
 
