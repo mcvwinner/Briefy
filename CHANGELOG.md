@@ -2,6 +2,13 @@
 
 本项目的所有显著变更记录于此。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [0.2.0] - 2026-08-27
+
+### 新增
+
+- **设计文件保存/打开**：`保存` 按钮 → 系统保存对话框 → `.briefy` 文件（LayoutSpec JSON，透明可手工编辑）；`打开` 按钮 → 选择 `.briefy` → 结构校验后整体加载；`新建` 按钮清空为单页文档。
+- **PDF 导出**：隐藏窗口加载 `?print=1` 打印视图（只含所有页面的纯净版式），Electron `printToPDF` 按 A4 零边距输出，弹出系统保存框。零新增依赖。
+
 ## [0.1.0] - 2026-08-27
 
 首个可用版本 🎉

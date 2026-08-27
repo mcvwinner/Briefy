@@ -17,7 +17,8 @@ import {
   WandRegular,
   SettingsRegular,
   WeatherMoonRegular,
-  WeatherSunnyRegular
+  WeatherSunnyRegular,
+  DocumentPdfRegular
 } from '@fluentui/react-icons'
 import PageView from './components/PageView'
 import PageTabs from './components/PageTabs'
@@ -26,7 +27,7 @@ import StatusBar from './components/StatusBar'
 import SettingsDialog from './components/SettingsDialog'
 import { useLayout } from './hooks/useLayout'
 import type { AiSettings, ThemeMode } from '../../shared/settings'
-import type { Block } from '../../shared/layout'
+import type { Block, LayoutDoc } from '../../shared/layout'
 
 declare global {
   interface Window {
@@ -34,6 +35,9 @@ declare global {
       getSettings(): Promise<AiSettings>
       saveSettings(settings: AiSettings): Promise<void>
       generateBlock(prompt: string, kind: string): Promise<{ content: string }>
+      saveDoc(doc: LayoutDoc): Promise<string | null>
+      openDoc(): Promise<LayoutDoc | null>
+      exportPdf(): Promise<string | null>
     }
   }
 }
@@ -82,6 +86,9 @@ const useStyles = makeStyles({
     padding: '4px 8px'
   }
 })
+
+/** 打印/导出模式：URL 带 ?print=1 时为 true，只渲染纯净版面 */
+const PRINT_MODE = new URLSearchParams(window.location.search).has('print')
 
 function App(): JSX.Element {
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -160,17 +167,70 @@ function App(): JSX.Element {
 
   const isDark = settings?.theme === 'dark'
 
+  /** 保存设计为 .briefy 文件 */
+  const saveDoc = async (): Promise<void> => {
+    await window.briefy?.saveDoc(layout.doc)
+  }
+
+  /** 打开 .briefy 设计文件 */
+  const openDoc = async (): Promise<void> => {
+    const doc = await window.briefy?.openDoc()
+    if (doc) layout.loadDoc(doc)
+  }
+
+  /** 导出当前文档为 PDF */
+  const exportPdf = async (): Promise<void> => {
+    await window.briefy?.exportPdf()
+  }
+
+  // 打印模式：仅渲染所有页面的干净版式，供 printToPDF 截取
+  if (PRINT_MODE) {
+    return (
+      <FluentProvider theme={webLightTheme}>
+        <div className="print-view">
+          {layout.doc.pages.map((page) =>
+            page.blocks.map((block) => (
+              <div
+                key={block.id}
+                className="print-block"
+                style={{
+                  left: `${(block.x / 210) * 100}%`,
+                  top: `${(block.y / 297) * 100}%`,
+                  width: `${(block.width / 210) * 100}%`,
+                  height: `${(block.height / 297) * 100}%`
+                }}
+              >
+                {block.content}
+              </div>
+            ))
+          )}
+        </div>
+      </FluentProvider>
+    )
+  }
+
   return (
     <FluentProvider theme={isDark ? webDarkTheme : webLightTheme} style={{ height: '100vh' }}>
       <div className={`${styles.app} ${isDark ? 'theme-dark' : 'theme-light'}`}>
         <FluentToolbar aria-label="主工具栏" className={styles.toolbar}>          <Tooltip content="新建文档" relationship="description">
-            <ToolbarButton icon={<DocumentAddRegular />}>新建</ToolbarButton>
+            <ToolbarButton icon={<DocumentAddRegular />} onClick={layout.newDoc}>
+              新建
+            </ToolbarButton>
           </Tooltip>
           <Tooltip content="打开设计文件" relationship="description">
-            <ToolbarButton icon={<FolderOpenRegular />}>打开</ToolbarButton>
+            <ToolbarButton icon={<FolderOpenRegular />} onClick={() => void openDoc()}>
+              打开
+            </ToolbarButton>
           </Tooltip>
           <Tooltip content="保存设计" relationship="description">
-            <ToolbarButton icon={<SaveRegular />}>保存</ToolbarButton>
+            <ToolbarButton icon={<SaveRegular />} onClick={() => void saveDoc()}>
+              保存
+            </ToolbarButton>
+          </Tooltip>
+          <Tooltip content="导出 PDF" relationship="description">
+            <ToolbarButton icon={<DocumentPdfRegular />} onClick={() => void exportPdf()}>
+              导出 PDF
+            </ToolbarButton>
           </Tooltip>
           <Tooltip content="在页面上框选一块内容区域" relationship="description">
             <ToolbarButton
@@ -251,7 +311,7 @@ function App(): JSX.Element {
           onRemove={layout.removePage}
         />
 
-        <StatusBar version="0.1.0" hasApiKey={hasApiKey} />
+        <StatusBar version="0.2.0" hasApiKey={hasApiKey} />
 
         <SettingsDialog
           open={settingsOpen}

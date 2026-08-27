@@ -11,6 +11,22 @@
   box-sizing: border-box;
 }
 
+/* ---------- 打印/导出模式（?print=1，供 printToPDF 截取的干净版式） ---------- */
+.print-view {
+  position: relative;
+  width: 210mm;
+  height: 297mm;
+  background: #fff;
+}
+
+.print-block {
+  position: absolute;
+  overflow: hidden;
+  font-size: 10pt;
+  line-height: 1.5;
+  color: #000;
+}
+
 /* ---------- 全局滚动条（跟随 Fluent 主题，暗色自动变色） ---------- */
 .theme-dark {
   color-scheme: dark;

@@ -96,6 +96,21 @@ export function useLayout() {
     return null
   }, [doc, selectedBlockId])
 
+  /** 新建文档（清空为单页） */
+  const newDoc = useCallback((): void => {
+    const fresh = createEmptyDoc()
+    setDoc(fresh)
+    setCurrentPageId(fresh.pages[0].id)
+    setSelectedBlockId(null)
+  }, [])
+
+  /** 加载文档（打开 .briefy 文件后整体替换） */
+  const loadDoc = useCallback((next: LayoutDoc): void => {
+    setDoc(next)
+    setCurrentPageId(next.pages[0]?.id ?? '')
+    setSelectedBlockId(null)
+  }, [])
+
   return {
     doc,
     selection,
@@ -107,6 +122,8 @@ export function useLayout() {
     updateBlock,
     removeBlock,
     addPage,
-    removePage
+    removePage,
+    newDoc,
+    loadDoc
   }
 }

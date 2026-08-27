@@ -2,6 +2,8 @@ import { app, BrowserWindow, nativeTheme, shell } from 'electron'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { registerSettingsIpc } from './settings'
+import { registerDocIpc } from './doc'
+import { registerExportIpc } from './export'
 
 /** electron-vite 产物扩展名随版本/配置变化（.js 或 .mjs），按实际存在的文件取用 */
 function preloadPath(): string {
@@ -42,6 +44,8 @@ function createMainWindow(): void {
 
 app.whenReady().then(() => {
   registerSettingsIpc()
+  registerDocIpc()
+  registerExportIpc()
   createMainWindow()
 
   app.on('activate', () => {
