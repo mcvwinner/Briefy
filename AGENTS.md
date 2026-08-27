@@ -68,7 +68,7 @@
 - [x] 确定产品定位与技术栈（Electron + React + TS + AI SDK，详见 docs/PRD.md）
 - [x] 初始化项目骨架（v0.0.1）
 - [x] Word 风格主框架（v0.0.2）
-- [ ] 设置页：AI Key 配置
+- [x] 设置页：AI Key 配置（v0.0.3，Fluent UI v9）
 - [ ] 编辑器：A4 版面与内容块增删移动
 - [ ] 多页管理与排版预设
 - [ ] AI 生成流水线
