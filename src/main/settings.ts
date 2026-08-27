@@ -3,6 +3,7 @@ import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { DEFAULT_SETTINGS, type AiSettings, type ThemeMode } from '../shared/settings'
 import { generateBlockContent } from './ai'
+import type { ToolId } from '../shared/layout'
 
 const SETTINGS_FILE = 'settings.json'
 
@@ -16,12 +17,14 @@ async function readSettings(): Promise<AiSettings> {
     const parsed: unknown = JSON.parse(raw)
     // 只取已知字段，防止文件被手改出脏数据
     if (parsed && typeof parsed === 'object') {
-      const { apiKey = '', baseUrl = '', model = '', theme = 'light' } = parsed as Record<string, unknown>
+      const { apiKey = '', baseUrl = '', model = '', theme = 'light', tavilyKey = '' } =
+        parsed as Record<string, unknown>
       return {
         apiKey: typeof apiKey === 'string' ? apiKey : '',
         baseUrl: typeof baseUrl === 'string' ? baseUrl : '',
         model: typeof model === 'string' ? model : '',
-        theme: theme === 'dark' ? 'dark' : 'light'
+        theme: theme === 'dark' ? 'dark' : 'light',
+        tavilyKey: typeof tavilyKey === 'string' ? tavilyKey : ''
       }
     }
   } catch {
@@ -40,9 +43,9 @@ export function registerSettingsIpc(): void {
   ipcMain.handle('settings:get', () => readSettings())
   ipcMain.handle('settings:set', (_event, settings: AiSettings) => writeSettings(settings))
   // 单区块生成：主进程统一持有 Key，渲染进程不接触密钥
-  ipcMain.handle('ai:generate-block', async (_event, prompt: string, kind: string) => {
+  ipcMain.handle('ai:generate-block', async (_event, prompt: string, kind: string, tools: string[]) => {
     const settings = await readSettings()
-    return generateBlockContent(settings, prompt, kind)
+    return generateBlockContent(settings, prompt, kind, tools as ToolId[])
   })
   // 启动时按已保存的偏好恢复系统主题
   void readSettings().then((s) => {

@@ -33,6 +33,7 @@ function SettingsDialog({ open, settings, onClose, onSaved }: SettingsDialogProp
   const [apiKey, setApiKey] = useState('')
   const [baseUrl, setBaseUrl] = useState('')
   const [model, setModel] = useState('')
+  const [tavilyKey, setTavilyKey] = useState('')
 
   // 每次打开时同步当前已保存的配置
   useEffect(() => {
@@ -40,6 +41,7 @@ function SettingsDialog({ open, settings, onClose, onSaved }: SettingsDialogProp
       setApiKey(settings.apiKey)
       setBaseUrl(settings.baseUrl)
       setModel(settings.model)
+      setTavilyKey(settings.tavilyKey ?? '')
     }
   }, [open, settings])
 
@@ -50,7 +52,8 @@ function SettingsDialog({ open, settings, onClose, onSaved }: SettingsDialogProp
       apiKey: apiKey.trim(),
       baseUrl: baseUrl.trim(),
       model: model.trim(),
-      theme: settings?.theme ?? 'light'
+      theme: settings?.theme ?? 'light',
+      tavilyKey: tavilyKey.trim()
     }
     try {
       if (window.briefy) {
@@ -94,6 +97,15 @@ function SettingsDialog({ open, settings, onClose, onSaved }: SettingsDialogProp
                 placeholder="gpt-4o-mini、deepseek-chat 等"
                 value={model}
                 onChange={(_, data) => setModel(data.value)}
+              />
+            </Field>
+            <Field label="Tavily 搜索 Key（可选）">
+              <Input
+                className={styles.apiKeyInput}
+                type="password"
+                placeholder="用于联网搜索工具，tavily.com 免费申请"
+                value={tavilyKey}
+                onChange={(_, data) => setTavilyKey(data.value)}
               />
             </Field>
             <p className={styles.hint}>

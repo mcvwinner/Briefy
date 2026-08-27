@@ -2,14 +2,18 @@ import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import { generateText, tool } from 'ai'
 import { z } from 'zod'
 import type { AiSettings } from '../shared/settings'
+import type { ToolId } from '../shared/layout'
+import { tavilySearch, fetchPageText } from './tools'
 
 /**
- * 内置工具集：AI 按需调用。
+ * 按区块配置动态组装工具集。
  * 时间不在提示词里硬编码，而是作为工具提供——需要时 AI 自己查询。
  */
-function buildTools() {
-  return {
-    getCurrentTime: tool({
+function buildTools(settings: AiSettings, enabled: ToolId[]) {
+  const tools: Record<string, ReturnType<typeof tool>> = {}
+
+  if (enabled.includes('getCurrentTime')) {
+    tools.getCurrentTime = tool({
       description:
         '获取当前的日期和时间（用户本地时区）。当内容涉及"今天/最新/近期"等时间概念时必须先调用此工具。',
       parameters: z.object({}),
@@ -24,6 +28,30 @@ function buildTools() {
       }
     })
   }
+
+  if (enabled.includes('webSearch')) {
+    if (!settings.tavilyKey) throw new Error('使用了搜索工具但未在设置中配置 Tavily Key')
+    tools.webSearch = tool({
+      description:
+        '联网搜索最新信息。输入中文或英文关键词，返回前几条结果（标题/链接/摘要）。需要事实性、时效性内容时优先使用。',
+      parameters: z.object({ query: z.string().describe('搜索关键词') }),
+      execute: async ({ query }) => {
+        const results = await tavilySearch(settings.tavilyKey, query)
+        return results.map((r) => ({ title: r.title, url: r.url, summary: r.content }))
+      }
+    })
+  }
+
+  if (enabled.includes('fetchPage')) {
+    tools.fetchPage = tool({
+      description:
+        '抓取指定网页的正文文本。用于深入了解 webSearch 结果中某条链接的完整内容。',
+      parameters: z.object({ url: z.string().url().describe('要抓取的网页地址') }),
+      execute: async ({ url }) => fetchPageText(url)
+    })
+  }
+
+  return tools
 }
 
 /** 拼装单个区块的生成提示词：全局规则 + 内容形式要求 + 用户提示词 */
@@ -37,7 +65,6 @@ function buildBlockPrompt(prompt: string, kind: string): string {
   }
   return [
     '你是一份个性化报纸的内容作者。请根据要求撰写该区块内容。',
-    `今天是${dateStr}。若用户要求"今日/最新"类内容，请按你知识范围内最接近此日期的信息撰写，不要推辞。`,
     '要求：内容紧凑、信息密度高、符合报纸文风；字数与区块大小匹配（宁可精炼勿冗长）。',
     `内容形式：${kindRules[kind] ?? kindRules.text}`,
     `区块主题要求：${prompt}`
@@ -49,13 +76,14 @@ export interface GenerateResult {
 }
 
 /**
- * 调用 OpenAI 兼容接口为单个区块生成内容。
+ * 调用 OpenAI 兼容接口为单个区块生成内容（按区块工具配置动态启用工具）。
  * 失败时抛出异常，由调用方决定重试策略。
  */
 export async function generateBlockContent(
   settings: AiSettings,
   prompt: string,
-  kind: string
+  kind: string,
+  enabledTools: ToolId[]
 ): Promise<GenerateResult> {
   if (!settings.apiKey) throw new Error('未配置 API Key')
   if (!settings.model) throw new Error('未配置模型名')
@@ -70,7 +98,7 @@ export async function generateBlockContent(
   const { text } = await generateText({
     model: provider.chatModel(settings.model),
     prompt: buildBlockPrompt(prompt, kind),
-    tools: buildTools(),
+    tools: buildTools(settings, enabledTools),
     // 模型调用工具后继续生成，直到产出最终文本或步数耗尽
     maxSteps: 5
   })

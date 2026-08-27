@@ -41,7 +41,7 @@ declare global {
     briefy?: {
       getSettings(): Promise<AiSettings>
       saveSettings(settings: AiSettings): Promise<void>
-      generateBlock(prompt: string, kind: string): Promise<{ content: string }>
+      generateBlock(prompt: string, kind: string, tools: string[]): Promise<{ content: string }>
       saveDoc(doc: LayoutDoc): Promise<string | null>
       openDoc(): Promise<LayoutDoc | null>
       exportPdf(): Promise<string | null>
@@ -156,7 +156,11 @@ function App(): JSX.Element {
           const task = tasks[cursor++]
           layout.updateBlock(task.pageId, task.block.id, { status: 'generating' })
           try {
-            const { content } = await window.briefy!.generateBlock(task.block.prompt, task.block.kind)
+            const { content } = await window.briefy!.generateBlock(
+              task.block.prompt,
+              task.block.kind,
+              task.block.tools ?? ['getCurrentTime']
+            )
             layout.updateBlock(task.pageId, task.block.id, { content, status: 'done' })
           } catch (err) {
             layout.updateBlock(task.pageId, task.block.id, {
@@ -346,7 +350,7 @@ function App(): JSX.Element {
           onRemove={layout.removePage}
         />
 
-        <StatusBar version="0.2.1" hasApiKey={hasApiKey} />
+        <StatusBar version="0.3.0" hasApiKey={hasApiKey} />
 
         <SettingsDialog
           open={settingsOpen}

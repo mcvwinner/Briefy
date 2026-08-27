@@ -1,5 +1,6 @@
 import {
   Button,
+  Checkbox,
   Dropdown,
   Field,
   SpinButton,
@@ -8,7 +9,14 @@ import {
   tokens
 } from '@fluentui/react-components'
 import { DeleteRegular } from '@fluentui/react-icons'
-import type { Block, BlockKind } from '../../../shared/layout'
+import type { Block, BlockKind, ToolId } from '../../../shared/layout'
+
+/** 工具勾选选项（与主进程 ai.ts 的 buildTools 一一对应） */
+const TOOL_OPTIONS: { id: ToolId; label: string; hint?: string }[] = [
+  { id: 'getCurrentTime', label: '当前时间' },
+  { id: 'webSearch', label: '联网搜索', hint: '需在设置中配置 Tavily Key' },
+  { id: 'fetchPage', label: '网页抓取' }
+]
 
 const KIND_OPTIONS = [
   { text: '纯文字', value: 'text' },
@@ -85,6 +93,21 @@ function PropertiesPanel({ block, onChange, onRemove }: PropertiesPanelProps): J
             </option>
           ))}
         </Dropdown>
+      </Field>
+
+      <Field label="AI 可用工具" className={styles.fieldGap}>
+        {TOOL_OPTIONS.map(({ id, label, hint }) => (
+          <Checkbox
+            key={id}
+            label={hint ? `${label}（${hint}）` : label}
+            checked={(block.tools ?? []).includes(id)}
+            onChange={(_, data) => {
+              const current = block.tools ?? []
+              const next = data.checked ? [...current, id] : current.filter((t) => t !== id)
+              onChange({ tools: next })
+            }}
+          />
+        ))}
       </Field>
 
       <Field label="尺寸（mm）" className={styles.fieldGap}>

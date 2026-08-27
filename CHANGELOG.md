@@ -2,6 +2,20 @@
 
 本项目的所有显著变更记录于此。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [0.3.0] - 2026-08-27
+
+### 新增
+
+- **区块级 AI 工具配置**（PRD"配置 AI 使用的工具"兑现）：
+  - 属性面板新增工具勾选组：当前时间 / 联网搜索 / 网页抓取，按区块独立勾选；
+  - 主进程按区块传入的工具列表动态组装 tools；
+  - 数据模型 `Block.tools` 字段；打开旧版 `.briefy` 文件自动补默认工具。
+- **联网搜索 + 网页抓取工具**：
+  - Tavily 搜索集成（返回标题/链接/摘要，专为 LLM 优化）；
+  - Electron `net.fetch` 抓取网页正文，LangChain `RecursiveCharacterTextSplitter` 切分长文取摘要；
+  - 引入 LangChain 检索层（混合模式：生成主链路仍为 Vercel AI SDK）。
+- **设置页**新增可选 Tavily Key 字段（不配则搜索工具不可用并给出明确报错）。
+
 ## [0.2.1] - 2026-08-27
 
 ### 新增

@@ -30,6 +30,8 @@ function buildPage(blocks: PresetBlock[]): Page {
     height: b.height,
     prompt: b.prompt,
     kind: b.kind,
+    // 预设默认带时间工具（新闻/日报场景都需要）
+    tools: ['getCurrentTime'] as const,
     status: 'empty' as const
   }))
   return page

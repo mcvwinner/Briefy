@@ -1,14 +1,42 @@
 import { BrowserWindow, dialog, ipcMain } from 'electron'
 import { readFile, writeFile } from 'node:fs/promises'
-import type { LayoutDoc } from '../shared/layout'
+import type { Block, LayoutDoc, ToolId } from '../shared/layout'
 
-/** 简单的结构校验，防止打开任意 JSON 崩溃 */
+/** 修补旧版文件的区块：补默认工具字段，保证打开不崩 */
+function normalizeBlocks(blocks: unknown): Block[] {
+  if (!Array.isArray(blocks)) return []
+  return blocks.map((b) => {
+    const block = b as Partial<Block>
+    const validTools: ToolId[] = ['getCurrentTime', 'webSearch', 'fetchPage', 'readReference']
+    return {
+      id: block.id ?? crypto.randomUUID(),
+      x: typeof block.x === 'number' ? block.x : 0,
+      y: typeof block.y === 'number' ? block.y : 0,
+      width: typeof block.width === 'number' ? block.width : 50,
+      height: typeof block.height === 'number' ? block.height : 40,
+      prompt: typeof block.prompt === 'string' ? block.prompt : '',
+      kind: block.kind ?? 'text',
+      // 旧文件没有 tools 字段 → 默认给时间工具
+      tools: Array.isArray(block.tools)
+        ? block.tools.filter((t) => validTools.includes(t))
+        : ['getCurrentTime'],
+      status: block.status ?? 'empty',
+      content: typeof block.content === 'string' ? block.content : undefined
+    }
+  })
+}
+
+/** 简单的结构校验 + 兼容修补，防止打开任意 JSON 崩溃 */
 function parseLayoutDoc(raw: string): LayoutDoc {
   const data: unknown = JSON.parse(raw)
   if (!data || typeof data !== 'object') throw new Error('不是有效的 Briefy 设计文件')
   const doc = data as Partial<LayoutDoc>
   if (doc.version !== 1 || !Array.isArray(doc.pages)) throw new Error('设计文件版本不受支持')
-  return doc as LayoutDoc
+  return {
+    version: 1,
+    title: doc.title ?? '未命名报纸',
+    pages: doc.pages.map((p) => ({ id: p.id ?? crypto.randomUUID(), blocks: normalizeBlocks(p.blocks) }))
+  }
 }
 
 export function registerDocIpc(): void {

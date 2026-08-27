@@ -6,6 +6,9 @@ export type BlockKind = 'text' | 'text-image' | 'table' | 'image'
 /** 内容生成状态 */
 export type BlockStatus = 'empty' | 'generating' | 'done' | 'error'
 
+/** 本轮内置的 AI 工具标识 */
+export type ToolId = 'getCurrentTime' | 'webSearch' | 'fetchPage' | 'readReference'
+
 /** 页面上的一个内容区块（坐标单位 mm） */
 export interface Block {
   id: string
@@ -17,6 +20,8 @@ export interface Block {
   /** 用户输入的生成提示词 */
   prompt: string
   kind: BlockKind
+  /** 允许此区块使用的 AI 工具 */
+  tools: ToolId[]
   status: BlockStatus
   /** AI 填充的内容（Markdown 或纯文本） */
   content?: string
@@ -58,6 +63,7 @@ export function createBlock(x: number, y: number, width: number, height: number)
     height,
     prompt: '',
     kind: 'text',
+    tools: ['getCurrentTime'],
     status: 'empty'
   }
 }
