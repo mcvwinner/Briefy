@@ -56,7 +56,24 @@ const useStyles = makeStyles({
     flexDirection: 'column',
     alignItems: 'center',
     gap: '24px',
-    backgroundColor: tokens.colorNeutralBackground3
+    backgroundColor: tokens.colorNeutralBackground3,
+    scrollbarColor: `${tokens.colorNeutralStroke1} transparent`,
+    '::-webkit-scrollbar': {
+      width: '12px',
+      height: '12px'
+    },
+    '::-webkit-scrollbar-thumb': {
+      backgroundColor: tokens.colorNeutralStroke1,
+      borderRadius: '6px',
+      border: `3px solid transparent`,
+      backgroundClip: 'content-box'
+    },
+    '::-webkit-scrollbar-thumb:hover': {
+      backgroundColor: tokens.colorNeutralStroke1Hover
+    },
+    '::-webkit-scrollbar-track': {
+      backgroundColor: 'transparent'
+    }
   },
   toolbar: {
     borderBottom: `1px solid ${tokens.colorNeutralStroke2}`,
@@ -107,7 +124,7 @@ function App(): JSX.Element {
 
   return (
     <FluentProvider theme={isDark ? webDarkTheme : webLightTheme} style={{ height: '100vh' }}>
-      <div className={styles.app}>
+      <div className={`${styles.app} ${isDark ? 'theme-dark' : 'theme-light'}`}>
         <FluentToolbar aria-label="主工具栏" className={styles.toolbar}>          <Tooltip content="新建文档" relationship="description">
             <ToolbarButton icon={<DocumentAddRegular />}>新建</ToolbarButton>
           </Tooltip>
@@ -191,7 +208,7 @@ function App(): JSX.Element {
           onRemove={layout.removePage}
         />
 
-        <StatusBar version="0.0.5" hasApiKey={hasApiKey} />
+        <StatusBar version="0.0.6" hasApiKey={hasApiKey} />
 
         <SettingsDialog open={settingsOpen} settings={settings} onClose={() => setSettingsOpen(false)} />
       </div>

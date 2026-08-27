@@ -11,6 +11,36 @@
   box-sizing: border-box;
 }
 
+/* ---------- 全局滚动条（跟随 Fluent 主题，暗色自动变色） ---------- */
+.theme-dark {
+  color-scheme: dark;
+}
+
+.theme-light {
+  color-scheme: light;
+}
+
+body ::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+.theme-dark body ::-webkit-scrollbar-thumb,
+.theme-dark ::-webkit-scrollbar-thumb {
+  background-color: #565656;
+  border-radius: 6px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+.theme-light body ::-webkit-scrollbar-thumb,
+.theme-light ::-webkit-scrollbar-thumb {
+  background-color: #c7c7c7;
+  border-radius: 6px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
 body {
   margin: 0;
   font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;

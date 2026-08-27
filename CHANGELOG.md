@@ -2,6 +2,12 @@
 
 本项目的所有显著变更记录于此。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [0.0.6] - 2026-08-27
+
+### 修复
+
+- 暗色模式下滚动条不变色：自定义 webkit 滚动条样式（thumb 跟随主题灰阶、圆角、hover 变色），并按主题切换 `color-scheme`，系统原生控件同步适配暗色。
+
 ## [0.0.5] - 2026-08-27
 
 ### 新增
