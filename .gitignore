@@ -1,0 +1,12 @@
+node_modules/
+out/
+dist/
+
+# 日志与系统文件
+*.log
+.DS_Store
+Thumbs.db
+
+# 本地私密配置（API Key 不入库）
+*.local
+settings.json

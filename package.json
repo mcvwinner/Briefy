@@ -1,0 +1,15 @@
+{
+  "name": "briefy",
+  "version": "0.0.1",
+  "description": "用 AI 自动填充内容，像排报纸一样制作个性化读物的桌面应用",
+  "main": "./out/main/index.js",
+  "author": "Briefy Contributors",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "electron-vite preview"
+  },
+  "devDependencies": {}
+}
