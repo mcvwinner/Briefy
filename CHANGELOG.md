@@ -2,6 +2,16 @@
 
 本项目的所有显著变更记录于此。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [0.0.9] - 2026-08-27
+
+### 修复
+
+- **preload 脚本从未加载（严重）**：主进程引用 `../preload/index.js`，但 electron-vite v5 产物是 `index.mjs`，导致 `window.briefy` 桥不存在、所有 IPC（设置读写/生成）静默失效——这正是"保存无效果"的真正根因。现在按实际存在的产物文件自动探测扩展名。
+
+### 验证记录
+
+- 设置持久化链路实测打通：`%APPDATA%\briefy\settings.json` 正确落盘（apiKey/baseUrl/model/theme 四字段完整）。
+
 ## [0.0.8] - 2026-08-27
 
 ### 修复

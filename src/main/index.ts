@@ -1,6 +1,16 @@
 import { app, BrowserWindow, shell } from 'electron'
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { registerSettingsIpc } from './settings'
+
+/** electron-vite 产物扩展名随版本/配置变化（.js 或 .mjs），按实际存在的文件取用 */
+function preloadPath(): string {
+  const base = join(__dirname, '../preload/index')
+  for (const ext of ['.mjs', '.js']) {
+    if (existsSync(base + ext)) return base + ext
+  }
+  return base + '.mjs'
+}
 
 function createMainWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -9,7 +19,7 @@ function createMainWindow(): void {
     show: false,
     autoHideMenuBar: true,
     webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
+      preload: preloadPath(),
       sandbox: false
     }
   })
