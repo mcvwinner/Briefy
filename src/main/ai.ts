@@ -1,5 +1,4 @@
-import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
-import { generateText, tool } from 'ai'
+import { tool } from 'ai'
 import { z } from 'zod'
 import type { AiSettings } from '../shared/settings'
 import type { ToolId } from '../shared/layout'
@@ -95,13 +94,57 @@ export async function generateBlockContent(
     baseURL: settings.baseUrl || 'https://api.openai.com/v1'
   })
 
-  const { text } = await generateText({
-    model: provider.chatModel(settings.model),
-    prompt: buildBlockPrompt(prompt, kind),
-    tools: buildTools(settings, enabledTools),
-    // 模型调用工具后继续生成，直到产出最终文本或步数耗尽
-    maxSteps: 5
-  })
+  // 手动实现工具调用循环（对各家 OpenAI 兼容端点兼容性最稳）：
+  // 第一轮若返回 tool_calls → 执行工具 → 把结果以 role:'tool' 回传 → 再请求直到产出正文
+  const url = (settings.baseUrl || 'https://api.openai.com/v1').replace(/\/+$/, '') + '/chat/completions'
+  const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${settings.apiKey}` }
+  const toolDefs = buildTools(settings, enabledTools)
+  const openaiTools = Object.entries(toolDefs).map(([name, t]) => ({
+    type: 'function' as const,
+    function: { name, description: t.description, parameters: t.parameters }
+  }))
+  const messages: unknown[] = [{ role: 'user', content: buildBlockPrompt(prompt, kind) }]
 
-  return { content: text }
+  for (let step = 0; step < 5; step++) {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ model: settings.model, messages, tools: openaiTools })
+    })
+    if (!res.ok) {
+      const errText = await res.text()
+      throw new Error(`AI 接口错误 ${res.status}: ${errText.slice(0, 200)}`)
+    }
+    const data = (await res.json()) as {
+      choices?: { message?: { content?: unknown; tool_calls?: { id: string; function: { name: string; arguments: string } }[] } }[]
+    }
+    const msg = data.choices?.[0]?.message
+    if (!msg) throw new Error('AI 返回了空响应')
+
+    // 无工具调用 → 拿到正文，结束
+    if (!msg.tool_calls?.length) {
+      const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content ?? '')
+      return { content }
+    }
+
+    // 有工具调用 → 本地执行 → 回传结果继续
+    messages.push(msg)
+    for (const tc of msg.tool_calls) {
+      const impl = toolDefs[tc.function.name]
+      let result: unknown
+      if (!impl) {
+        result = { error: `未知工具 ${tc.function.name}` }
+      } else {
+        try {
+          const args = tc.function.arguments ? JSON.parse(tc.function.arguments) : {}
+          result = await impl.execute(args as never, { messages: [], toolCallId: tc.id })
+        } catch (err) {
+          result = { error: err instanceof Error ? err.message : String(err) }
+        }
+      }
+      messages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(result ?? {}) })
+    }
+  }
+
+  throw new Error('生成超时：模型陷入持续的工具调用')
 }

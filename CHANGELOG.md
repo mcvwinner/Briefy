@@ -2,6 +2,16 @@
 
 本项目的所有显著变更记录于此。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [0.3.1] - 2026-08-27
+
+### 修复
+
+- **生成结果异常（工具调用循环失效）**：实测复现发现模型首轮返回 `finish_reason: tool_calls`（正文为空）后，AI SDK 的 maxSteps 自动续轮在部分 OpenAI 兼容端点（如 DeepSeek）上未正确回传工具结果，导致最终只显示空内容。改为**手动实现标准两轮工具循环**（tool_calls → 本地执行 → role:'tool' 回传 → 继续生成），用原生 fetch 直连 `/chat/completions`，对各家兼容端点最稳；经 DeepSeek 实测产出正常正文。
+
+### 变更
+
+- 移除对 AI SDK generateText/maxSteps 的依赖，`@ai-sdk/openai-compatible` 仅保留安装备用。
+
 ## [0.3.0] - 2026-08-27
 
 ### 新增
