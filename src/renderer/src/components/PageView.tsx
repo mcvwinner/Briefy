@@ -3,6 +3,43 @@ import { makeStyles, tokens } from '@fluentui/react-components'
 import type { Block, Page } from '../../../shared/layout'
 import { mmToPx } from '../utils/units'
 
+/** 解析 Markdown 表格为行列数组；非表格内容返回 null */
+function parseMarkdownTable(text: string): string[][] | null {
+  const lines = text.split('\n').map((l) => l.trim()).filter((l) => l.startsWith('|') && l.endsWith('|'))
+  // 表格至少：表头 + 分隔行 + 一行数据
+  if (lines.length < 3) return null
+  const rows = lines.map((l) =>
+    l.slice(1, -1).split('|').map((cell) => cell.trim())
+  )
+  // 第二行是分隔行（仅含 - : 空格）才认为是表格
+  const isSeparator = (cells: string[]) => cells.every((c) => /^:?-+:?$/.test(c))
+  if (rows.length < 2 || !isSeparator(rows[1])) return null
+  return [rows[0], ...rows.slice(2)]
+}
+
+/** 区块内容渲染：表格类解析为真 table，其余纯文本 */
+function BlockContent({ kind, content }: { kind: string; content: string }): JSX.Element {
+  if (kind === 'table') {
+    const rows = parseMarkdownTable(content)
+    if (rows) {
+      return (
+        <table className="block-table">
+          <tbody>
+            {rows.map((row, ri) => (
+              <tr key={ri}>
+                {row.map((cell, ci) =>
+                  ri === 0 ? <th key={ci}>{cell}</th> : <td key={ci}>{cell}</td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )
+    }
+  }
+  return <>{content}</>
+}
+
 const useStyles = makeStyles({
   sheet: {
     position: 'relative',
@@ -269,7 +306,9 @@ function PageView({
           {block.status === 'generating' && <div className={styles.blockStatus}>生成中…</div>}
           {block.status === 'error' && <div className={styles.blockError}>{block.content}</div>}
           {block.status === 'done' && block.content && (
-            <div className={styles.blockContent}>{block.content}</div>
+            <div className={styles.blockContent}>
+              <BlockContent kind={block.kind} content={block.content} />
+            </div>
           )}
           {selectedBlockId === block.id &&
             HANDLES.map(({ dir, style, cursor }) => (

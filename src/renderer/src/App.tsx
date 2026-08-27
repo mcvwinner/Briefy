@@ -371,7 +371,7 @@ function App(): JSX.Element {
           onRemove={layout.removePage}
         />
 
-        <StatusBar version="0.3.2" hasApiKey={hasApiKey} />
+        <StatusBar version="0.3.3" hasApiKey={hasApiKey} />
 
         <SettingsDialog
           open={settingsOpen}

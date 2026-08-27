@@ -11,6 +11,27 @@
   box-sizing: border-box;
 }
 
+/* ---------- 区块内表格渲染 ---------- */
+.block-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 9pt;
+  line-height: 1.4;
+}
+
+.block-table th,
+.block-table td {
+  border: 1px solid #c7c7c7;
+  padding: 3px 5px;
+  text-align: left;
+  word-break: break-word;
+}
+
+.block-table th {
+  background: #f0f0f0;
+  font-weight: 600;
+}
+
 /* ---------- 打印/导出模式（?print=1，供 printToPDF 截取的干净版式） ---------- */
 .print-view {
   position: relative;

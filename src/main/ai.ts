@@ -113,7 +113,8 @@ export async function generateBlockContent(
   }))
   const messages: unknown[] = [{ role: 'user', content: buildBlockPrompt(prompt, kind, docContext, blockIndex) }]
 
-  for (let step = 0; step < 5; step++) {
+  // 上限放宽到 12：一轮可能并行发多个 tool_calls，每次请求算一步
+  for (let step = 0; step < 12; step++) {
     const res = await fetch(url, {
       method: 'POST',
       headers,
@@ -154,5 +155,21 @@ export async function generateBlockContent(
     }
   }
 
-  throw new Error('生成超时：模型陷入持续的工具调用')
+  // 步数耗尽：强制让模型基于已有工具结果直接写出正文（不再提供工具）
+  const finalRes = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ model: settings.model, messages })
+  })
+  if (!finalRes.ok) throw new Error(`AI 接口错误 ${finalRes.status}`)
+  const finalData = (await finalRes.json()) as {
+    choices?: { message?: { content?: unknown } }[]
+  }
+  const finalContent = finalData.choices?.[0]?.message?.content
+  return {
+    content:
+      typeof finalContent === 'string' && finalContent.trim()
+        ? finalContent
+        : '（生成中断：模型连续调用工具未能完成内容，请重试或减少该区块的工具）'
+  }
 }
