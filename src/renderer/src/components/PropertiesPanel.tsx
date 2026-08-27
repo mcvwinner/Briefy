@@ -3,6 +3,7 @@ import {
   Checkbox,
   Dropdown,
   Field,
+  Option,
   SpinButton,
   Textarea,
   makeStyles,
@@ -18,12 +19,11 @@ const TOOL_OPTIONS: { id: ToolId; label: string; hint?: string }[] = [
   { id: 'fetchPage', label: '网页抓取' }
 ]
 
-const KIND_OPTIONS = [
+/** 内窑形式选项（image/text-image 已移除：无生图服务，占位无意义） */
+const KIND_OPTIONS: { text: string; value: BlockKind }[] = [
   { text: '纯文字', value: 'text' },
-  { text: '图文', value: 'text-image' },
-  { text: '表格', value: 'table' },
-  { text: '图片', value: 'image' }
-] as const
+  { text: '表格', value: 'table' }
+]
 
 const useStyles = makeStyles({
   panel: {
@@ -88,9 +88,9 @@ function PropertiesPanel({ block, onChange, onRemove }: PropertiesPanelProps): J
           onOptionSelect={(_, data) => onChange({ kind: data.optionValue as BlockKind })}
         >
           {KIND_OPTIONS.map((k) => (
-            <option key={k.value} value={k.value}>
+            <Option key={k.value} value={k.value}>
               {k.text}
-            </option>
+            </Option>
           ))}
         </Dropdown>
       </Field>

@@ -1,13 +1,20 @@
 import type { AiSettings } from './settings'
 
-/** 区块内容形式 */
-export type BlockKind = 'text' | 'text-image' | 'table' | 'image'
+/** 区块内容形式（text-image/image 需生图服务，已按用户要求移除） */
+export type BlockKind = 'text' | 'table'
 
 /** 内容生成状态 */
 export type BlockStatus = 'empty' | 'generating' | 'done' | 'error'
 
 /** 本轮内置的 AI 工具标识 */
-export type ToolId = 'getCurrentTime' | 'webSearch' | 'fetchPage' | 'readReference'
+export type ToolId = 'getCurrentTime' | 'webSearch' | 'fetchPage'
+
+/** 文档级语篇上下文：让 AI 知道整份报纸的结构与自己的位置 */
+export interface DocContext {
+  title: string
+  /** 各区块摘要，按版面顺序：[{ position: "第1页·左上", prompt: "科技头条" }] */
+  outline: { position: string; prompt: string }[]
+}
 
 /** 页面上的一个内容区块（坐标单位 mm） */
 export interface Block {

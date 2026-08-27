@@ -41,7 +41,13 @@ declare global {
     briefy?: {
       getSettings(): Promise<AiSettings>
       saveSettings(settings: AiSettings): Promise<void>
-      generateBlock(prompt: string, kind: string, tools: string[]): Promise<{ content: string }>
+      generateBlock(
+        prompt: string,
+        kind: string,
+        tools: string[],
+        docContext: unknown,
+        blockIndex: number
+      ): Promise<{ content: string }>
       saveDoc(doc: LayoutDoc): Promise<string | null>
       openDoc(): Promise<LayoutDoc | null>
       exportPdf(): Promise<string | null>
@@ -120,7 +126,7 @@ function App(): JSX.Element {
       await window.briefy?.saveSettings?.(updated)
     } else {
       // settings 未加载（如纯浏览器预览）：只改本地状态让 UI 生效
-      setSettings({ apiKey: '', baseUrl: '', model: '', theme: next })
+      setSettings({ apiKey: '', baseUrl: '', model: '', theme: next, tavilyKey: '' })
     }
   }
 
@@ -136,19 +142,32 @@ function App(): JSX.Element {
 
   const hasApiKey = Boolean(settings?.apiKey)
 
-  /** 并发生成所有区块（并发上限 3），逐块回填 */
+  /** 并发生成所有区块（并发上限 3），逐块回填；附带文档大纲供 AI 语篇决策 */
   const [generating, setGenerating] = useState(false)
   const generateAll = async (): Promise<void> => {
     if (!window.briefy || generating) return
     setGenerating(true)
     try {
-      const tasks: { pageId: string; block: Block }[] = []
+      const tasks: { pageId: string; block: Block; index: number }[] = []
+      let index = 0
       for (const page of layout.doc.pages) {
         for (const block of page.blocks) {
           if (!block.prompt.trim()) continue // 无提示词的区块跳过
-          tasks.push({ pageId: page.id, block })
+          tasks.push({ pageId: page.id, block, index })
+          index++
         }
       }
+      // 语篇上下文：整份报纸的区块大纲（页码+版面方位）
+      const docContext = {
+        title: layout.doc.title,
+        outline: layout.doc.pages.flatMap((page, pi) =>
+          page.blocks.map((b) => ({
+            position: `第${pi + 1}页·${b.y < 140 ? (b.x < 105 ? '左上' : '右上') : b.x < 105 ? '左下' : '右下'}`,
+            prompt: b.prompt
+          }))
+        )
+      }
+
       const CONCURRENCY = 3
       let cursor = 0
       const worker = async (): Promise<void> => {
@@ -159,7 +178,9 @@ function App(): JSX.Element {
             const { content } = await window.briefy!.generateBlock(
               task.block.prompt,
               task.block.kind,
-              task.block.tools ?? ['getCurrentTime']
+              task.block.tools ?? ['getCurrentTime'],
+              docContext,
+              task.index
             )
             layout.updateBlock(task.pageId, task.block.id, { content, status: 'done' })
           } catch (err) {
@@ -350,7 +371,7 @@ function App(): JSX.Element {
           onRemove={layout.removePage}
         />
 
-        <StatusBar version="0.3.1" hasApiKey={hasApiKey} />
+        <StatusBar version="0.3.2" hasApiKey={hasApiKey} />
 
         <SettingsDialog
           open={settingsOpen}

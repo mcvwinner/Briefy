@@ -1,7 +1,7 @@
 import { tool } from 'ai'
 import { z } from 'zod'
 import type { AiSettings } from '../shared/settings'
-import type { ToolId } from '../shared/layout'
+import type { DocContext, ToolId } from '../shared/layout'
 import { tavilySearch, fetchPageText } from './tools'
 
 /**
@@ -53,21 +53,34 @@ function buildTools(settings: AiSettings, enabled: ToolId[]) {
   return tools
 }
 
-/** 拼装单个区块的生成提示词：全局规则 + 内容形式要求 + 用户提示词 */
-function buildBlockPrompt(prompt: string, kind: string): string {
+/** 把文档大纲转成 AI 可读的版面说明（语篇意识：让模型知道全报结构与自己的位置） */
+function buildOutlineSection(context?: DocContext, currentIndex = -1): string {
+  if (!context || context.outline.length === 0) return ''
+  const lines = context.outline.map((o, i) => {
+    const marker = i === currentIndex ? ' ← 本区块' : ''
+    return `  ${i + 1}. [${o.position}] ${o.prompt || '（未填提示词）'}${marker}`
+  })
+  return [
+    `整份《${context.title}》共 ${context.outline.length} 个区块，版面结构如下：`,
+    ...lines,
+    '语篇要求：你的稿件是其中一环。注意与相邻区块分工不重叠、详略得当；如果是头条/首块要能镇住版面，后续区块避免重复前文已述事实并做好承接过渡；全文风格统一（同一份报纸应像同一个人写的）。'
+  ].join('\n')
+}
+
+/** 拼装单个区块的生成提示词：全局规则 + 版面大纲 + 内容形式要求 + 用户提示词 */
+function buildBlockPrompt(prompt: string, kind: string, context?: DocContext, index = -1): string {
   const kindRules: Record<string, string> = {
     text: '输出纯文本段落，不要使用 Markdown 标记。',
-    'text-image':
-      '输出内容分为两部分，用一行 --- 分隔：上半部分是文字；下半部分用一行 JSON 描述配图：{"image":"<英文绘图描述>"}。',
-    table: '输出一个表格。使用 | 分隔的 Markdown 表格语法。',
-    image: '只输出一行 JSON：{"image":"<英文绘图描述>"}'
+    table: '输出一个表格。使用 | 分隔的 Markdown 表格语法，首行为表头。'
   }
-  return [
+  const sections = [
     '你是一份个性化报纸的内容作者。请根据要求撰写该区块内容。',
+    buildOutlineSection(context, index),
     '要求：内容紧凑、信息密度高、符合报纸文风；字数与区块大小匹配（宁可精炼勿冗长）。',
     `内容形式：${kindRules[kind] ?? kindRules.text}`,
     `区块主题要求：${prompt}`
-  ].join('\n')
+  ]
+  return sections.filter(Boolean).join('\n')
 }
 
 export interface GenerateResult {
@@ -82,7 +95,9 @@ export async function generateBlockContent(
   settings: AiSettings,
   prompt: string,
   kind: string,
-  enabledTools: ToolId[]
+  enabledTools: ToolId[],
+  docContext?: DocContext,
+  blockIndex = -1
 ): Promise<GenerateResult> {
   if (!settings.apiKey) throw new Error('未配置 API Key')
   if (!settings.model) throw new Error('未配置模型名')
@@ -96,7 +111,7 @@ export async function generateBlockContent(
     type: 'function' as const,
     function: { name, description: t.description, parameters: t.parameters }
   }))
-  const messages: unknown[] = [{ role: 'user', content: buildBlockPrompt(prompt, kind) }]
+  const messages: unknown[] = [{ role: 'user', content: buildBlockPrompt(prompt, kind, docContext, blockIndex) }]
 
   for (let step = 0; step < 5; step++) {
     const res = await fetch(url, {

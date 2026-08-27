@@ -15,7 +15,8 @@ function normalizeBlocks(blocks: unknown): Block[] {
       width: typeof block.width === 'number' ? block.width : 50,
       height: typeof block.height === 'number' ? block.height : 40,
       prompt: typeof block.prompt === 'string' ? block.prompt : '',
-      kind: block.kind ?? 'text',
+      // 旧文件的 text-image/image 形式归一化为 text（生图服务未接入）
+      kind: block.kind === 'table' ? 'table' : 'text',
       // 旧文件没有 tools 字段 → 默认给时间工具
       tools: Array.isArray(block.tools)
         ? block.tools.filter((t) => validTools.includes(t))
