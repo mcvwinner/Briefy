@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { AiSettings } from '../shared/settings'
 import type { DocContext, ToolId } from '../shared/layout'
 import { tavilySearch, fetchPageText } from './tools'
+import { buildWidgetPromptSection } from '../shared/widgets'
 
 /**
  * 按区块配置动态组装工具集。
@@ -71,10 +72,11 @@ function buildOutlineSection(context?: DocContext, currentIndex = -1): string {
 function buildBlockPrompt(prompt: string, kind: string, context?: DocContext, index = -1): string {
   const kindRules: Record<string, string> = {
     text: [
-      '输出纯文本（可用轻量排版增强表现力）：',
-      '- 可用 **加粗** 强调关键数字与主体；',
-      '- 较长内容可用 "## 小标题" 分段（每个小标题下接一段）；',
+      '输出文本内容，可用以下表现力手段：',
+      '- **加粗** 强调关键数字与主体；',
+      '- "## 小标题" 分段（较长内容时）；',
       '- 首段首字会自动下沉放大，请把最重要的导语放开头；',
+      buildWidgetPromptSection(),
       '- 不要使用其他 Markdown 语法（列表/引用/链接等）。'
     ].join('\n'),
     table: '输出一个表格。使用 | 分隔的 Markdown 表格语法，首行为表头；单元格内可用 **加粗** 强调关键数字。'

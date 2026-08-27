@@ -2,6 +2,18 @@
 
 本项目的所有显著变更记录于此。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [0.5.0] - 2026-08-27
+
+### 新增（架构 v2 第一阶段：预制控件协议）
+
+- **控件注册表**（`src/shared/widgets.ts`）：stat 统计卡 / quote 引用块 / info 信息框 / timeline 时间线，一个定义同时驱动 AI 提示词、语法解析、渲染与（后续）用户表单；
+- **控件语法解析器**（`src/shared/parse.ts`）：`:::控件id{key:"值"}` 标记行 → 节点流（段落/小标题/控件），未知控件安全回落为普通文本；
+- **控件渲染组件**（`widgets-render.tsx`）：统计卡（趋势色/箭头）、引用块（竖线+来源）、信息框（三色语气）、时间线（时间轴列表）；
+- **AI 提示词接入**：告知 AI 可用控件清单与使用克制原则（每区块 0-3 个）；
+- 解析器自测脚本 `scripts/test-parse.mjs`（5 节点样例断言全过）。
+
+> 这是"AI 直出 HTML"讨论的落地形态：预制控件协议——AI 有表现力、用户可表单化参与（P2）、版面不可被破坏。架构详见 `docs/DESIGN-widgets.md`。
+
 ## [0.4.0] - 2026-08-27
 
 ### 新增

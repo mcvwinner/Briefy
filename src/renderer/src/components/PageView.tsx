@@ -2,7 +2,9 @@ import { useRef, useState } from 'react'
 import { makeStyles, tokens } from '@fluentui/react-components'
 import type { Block, Page } from '../../../shared/layout'
 import { mmToPx } from '../utils/units'
-import { renderBlockMarkdown, renderInlineMarkdown } from '../utils/markdown'
+import { renderInlineMarkdown } from '../utils/markdown'
+import { parseContent } from '../../../shared/parse'
+import { renderContentNodes } from '../utils/widgets-render'
 
 /** 解析 Markdown 表格为行列数组；非表格内容返回 null */
 function parseMarkdownTable(text: string): string[][] | null {
@@ -18,7 +20,7 @@ function parseMarkdownTable(text: string): string[][] | null {
   return [rows[0], ...rows.slice(2)]
 }
 
-/** 区块内容渲染：表格类解析为真 table（单元格支持行内强调），其余支持小标题/首字下沉 */
+/** 区块内容渲染：表格类解析为真 table（单元格支持行内强调），其余走控件协议流 */
 function BlockContent({ kind, content }: { kind: string; content: string }): JSX.Element {
   if (kind === 'table') {
     const rows = parseMarkdownTable(content)
@@ -42,8 +44,25 @@ function BlockContent({ kind, content }: { kind: string; content: string }): JSX
       )
     }
   }
-  // 纯文字：支持小标题分段 + 首段首字下沉
-  return <>{renderBlockMarkdown(content, { dropCap: true })}</>
+  // 控件协议流：段落/小标题/统计卡/引用/信息框/时间线；首段首字下沉在段落节点内处理
+  const nodes = parseContent(content)
+  const rendered = renderContentNodes(nodes)
+  // 首字下沉：给第一个段落节点包裹装饰
+  const firstParaIdx = nodes.findIndex((n) => n.type === 'paragraph')
+  if (firstParaIdx >= 0) {
+    const enhanced = rendered.map((node, i) =>
+      i === firstParaIdx ? (
+        <p key={i} className="block-para">
+          <span className="drop-cap">{(nodes[i] as { text: string }).text.charAt(0)}</span>
+          {renderInlineMarkdown((nodes[i] as { text: string }).text.slice(1), `dc${i}`)}
+        </p>
+      ) : (
+        node
+      )
+    )
+    return <>{enhanced}</>
+  }
+  return <>{rendered}</>
 }
 
 const useStyles = makeStyles({

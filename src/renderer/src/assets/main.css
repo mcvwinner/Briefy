@@ -56,6 +56,75 @@
   color: #0f6cbd;
 }
 
+/* ---------- 预制控件 ---------- */
+.widget-stat {
+  border: 1px solid #dde1e6;
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin: 6px 0;
+  background: #fafbfc;
+}
+
+.widget-stat-label {
+  font-size: 9pt;
+  color: #616161;
+}
+
+.widget-stat-value {
+  font-size: 16pt;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.widget-stat-note {
+  font-size: 8.5pt;
+  color: #616161;
+}
+
+.widget-quote {
+  margin: 6px 0;
+  padding: 4px 10px;
+  border-left: 3px solid #0f6cbd;
+  color: #424242;
+}
+
+.widget-quote-text {
+  font-size: 10pt;
+  font-style: italic;
+}
+
+.widget-quote-source {
+  margin-top: 2px;
+  font-size: 8.5pt;
+  color: #616161;
+}
+
+.widget-info {
+  margin: 6px 0;
+  padding: 6px 10px;
+  border-left: 3px solid;
+  border-radius: 3px;
+  font-size: 9.5pt;
+}
+
+.widget-timeline {
+  margin: 6px 0;
+}
+
+.widget-timeline-item {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 3px;
+  font-size: 9.5pt;
+}
+
+.widget-timeline-time {
+  flex-shrink: 0;
+  font-weight: 600;
+  color: #0f6cbd;
+  font-variant-numeric: tabular-nums;
+}
+
 /* ---------- 打印/导出模式（?print=1，供 printToPDF 截取的干净版式） ---------- */
 .print-view {
   position: relative;
