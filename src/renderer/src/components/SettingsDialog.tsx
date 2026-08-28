@@ -92,9 +92,14 @@ const useStyles = makeStyles({
   },
   sourceItem: {
     display: 'flex',
+    flexDirection: 'column',
+    gap: '4px',
+    marginBottom: '6px'
+  },
+  sourceRow: {
+    display: 'flex',
     gap: '6px',
-    alignItems: 'center',
-    marginBottom: '4px'
+    alignItems: 'center'
   },
   sourceInput: { flex: 1, minWidth: 0 },
   sourceList: {
@@ -245,6 +250,31 @@ function SettingsDialog({ open, settings, onClose, onSaved }: SettingsDialogProp
               checked={layout.grayscale === true}
               onChange={(_, d) => setLayout({ ...layout, grayscale: d.checked === true })}
             />
+            <Field label="页眉页脚（绘制在页边距区，不占内容空间）">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <Checkbox
+                  label="报头（文档标题，页眉居左）"
+                  checked={layout.header?.title === true}
+                  onChange={(_, d) =>
+                    setLayout({ ...layout, header: { ...layout.header, title: d.checked === true } })
+                  }
+                />
+                <Checkbox
+                  label="日期（页眉居右）"
+                  checked={layout.header?.date === true}
+                  onChange={(_, d) =>
+                    setLayout({ ...layout, header: { ...layout.header, date: d.checked === true } })
+                  }
+                />
+                <Checkbox
+                  label="页码（页脚居中：第 X 页 · 共 N 页）"
+                  checked={layout.header?.pageNo === true}
+                  onChange={(_, d) =>
+                    setLayout({ ...layout, header: { ...layout.header, pageNo: d.checked === true } })
+                  }
+                />
+              </div>
+            </Field>
             <p className={styles.hint}>版式修改立即影响流式排布与自动分页；留空的项使用默认值。</p>
           </>
         )
@@ -338,24 +368,32 @@ function SettingsDialog({ open, settings, onClose, onSaved }: SettingsDialogProp
               <div className={styles.sourceList}>
                 {sources.map((src, i) => (
                   <div key={src.id} className={styles.sourceItem}>
-                    <Input
-                      className={styles.sourceInput}
-                      size="small"
-                      placeholder="名称（如：C++ 安全周报）"
-                      value={src.name}
-                      onChange={(_, d) =>
-                        setSources(sources.map((s, j) => (j === i ? { ...s, name: d.value } : s)))
-                      }
-                    />
-                    <Input
-                      className={styles.sourceInput}
-                      size="small"
-                      placeholder="https://网址"
-                      value={src.url}
-                      onChange={(_, d) =>
-                        setSources(sources.map((s, j) => (j === i ? { ...s, url: d.value } : s)))
-                      }
-                    />
+                    <div className={styles.sourceRow}>
+                      <Input
+                        className={styles.sourceInput}
+                        size="small"
+                        placeholder="名称（如：C++ 安全周报）"
+                        value={src.name}
+                        onChange={(_, d) =>
+                          setSources(sources.map((s, j) => (j === i ? { ...s, name: d.value } : s)))
+                        }
+                      />
+                      <Input
+                        className={styles.sourceInput}
+                        size="small"
+                        placeholder="https://网址"
+                        value={src.url}
+                        onChange={(_, d) =>
+                          setSources(sources.map((s, j) => (j === i ? { ...s, url: d.value } : s)))
+                        }
+                      />
+                      <Button
+                        icon={<DeleteRegular />}
+                        size="small"
+                        appearance="subtle"
+                        onClick={() => setSources(sources.filter((_, j) => j !== i))}
+                      />
+                    </div>
                     <Input
                       className={styles.sourceInput}
                       size="small"
@@ -364,12 +402,6 @@ function SettingsDialog({ open, settings, onClose, onSaved }: SettingsDialogProp
                       onChange={(_, d) =>
                         setSources(sources.map((s, j) => (j === i ? { ...s, note: d.value } : s)))
                       }
-                    />
-                    <Button
-                      icon={<DeleteRegular />}
-                      size="small"
-                      appearance="subtle"
-                      onClick={() => setSources(sources.filter((_, j) => j !== i))}
                     />
                   </div>
                 ))}

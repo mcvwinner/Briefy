@@ -152,6 +152,75 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* 配图（:::image） */
+.widget-image {
+  margin: 6px 0;
+}
+.widget-image img {
+  max-width: 100%;
+  border-radius: 3px;
+  display: block;
+}
+.widget-image figcaption {
+  margin-top: 2px;
+  font-size: 8.5pt;
+  color: #616161;
+  text-align: center;
+}
+
+/* 二维码（:::qrcode） */
+.widget-qrcode {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  margin: 6px 0;
+  padding: 6px;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+}
+.widget-qrcode img {
+  width: 32mm;
+  height: 32mm;
+  display: block;
+}
+.widget-qrcode-caption {
+  font-size: 8.5pt;
+  color: #616161;
+  text-align: center;
+}
+
+/* 本期看点（:::toc） */
+.widget-toc {
+  margin: 6px 0;
+  padding: 8px 10px;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  list-style: none;
+}
+.widget-toc-item {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  margin-bottom: 4px;
+  font-size: 9.5pt;
+}
+.widget-toc-item:last-child {
+  margin-bottom: 0;
+}
+.widget-toc-title {
+  flex-shrink: 0;
+  font-weight: 700;
+}
+.widget-toc-title::before {
+  content: '◆ ';
+  color: var(--colorBrandForeground1, #0f6cbd);
+  font-size: 8pt;
+}
+.widget-toc-desc {
+  color: #444;
+}
+
 /* ---------- 打印/导出模式（?print=1，供 printToPDF 截取的干净版式） ---------- */
 /* 逐页渲染真实 A4 版式（PageView 的 sheet 是 210×297mm），每页强制分页，
    物理尺寸由 sheet 自身保证，内容永不突破纸张 */

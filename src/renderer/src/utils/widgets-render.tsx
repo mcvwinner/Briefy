@@ -65,11 +65,58 @@ function Timeline({ params }: { params: Record<string, string> }): ReactNode {
   )
 }
 
-const WIDGET_RENDERERS: Record<WidgetId, (p: { params: Record<string, string> }) => ReactNode> = {
-  stat: StatCard,
+/** 配图：URL 直链 + 图注（URL 由 AI/用户提供，需可公网访问） */
+function ImageBlock({ params }: { params: Record<string, string> }): ReactNode {
+  if (!params.url) return null
+  return (
+    <figure className="widget-image">
+      <img src={params.url} alt={params.caption ?? ''} loading="lazy" />
+      {params.caption && <figcaption>{renderInlineMarkdown(params.caption)}</figcaption>}
+    </figure>
+  )
+}
+
+/** 二维码：qrserver 免费服务生成（导出打印时需联网加载） */
+function QrCode({ params }: { params: Record<string, string> }): ReactNode {
+  if (!params.data) return null
+  const src = `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(params.data)}`
+  return (
+    <div className="widget-qrcode">
+      <img src={src} alt={params.caption ?? 'QR'} loading="lazy" />
+      {params.caption && <div className="widget-qrcode-caption">{renderInlineMarkdown(params.caption)}</div>}
+    </div>
+  )
+}
+
+/** 本期看点：目录式导读列表 */
+function TocList({ params }: { params: Record<string, string> }): ReactNode {
+  const items = (params.items ?? '')
+    .split(';')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((s) => {
+      const [title, ...rest] = s.split('|')
+      return { title: title?.trim() ?? '', desc: rest.join('|').trim() }
+    })
+  return (
+    <ul className="widget-toc">
+      {items.map((it, i) => (
+        <li key={i} className="widget-toc-item">
+          <span className="widget-toc-title">{renderInlineMarkdown(it.title, `tt${i}`)}</span>
+          {it.desc && <span className="widget-toc-desc">{renderInlineMarkdown(it.desc, `td${i}`)}</span>}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+const WIDGET_RENDERERS: Record<WidgetId, (p: { params: Record<string, string> }) => ReactNode> = {  stat: StatCard,
   quote: QuoteBlock,
   info: InfoBox,
-  timeline: Timeline
+  timeline: Timeline,
+  image: ImageBlock,
+  qrcode: QrCode,
+  toc: TocList
 }
 
 /** 内容节点流 → React 节点（段落走行内 MD，控件走注册表） */

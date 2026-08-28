@@ -389,9 +389,17 @@ function App(): React.JSX.Element {
     return (
       <FluentProvider theme={webLightTheme}>
         <div className="print-view">
-          {(printDoc?.pages ?? []).map((page) => (
+          {printDoc?.pages.map((page, pi) => (
             <div key={page.id} className="print-page">
-              <PageView page={page} selectedSlotId={null} onSelectSlot={() => undefined} prefs={settings?.layout} />
+              <PageView
+                page={page}
+                selectedSlotId={null}
+                onSelectSlot={() => undefined}
+                prefs={settings?.layout}
+                docTitle={printDoc.title}
+                pageNo={pi + 1}
+                totalPages={printDoc.pages.length}
+              />
             </div>
           ))}
         </div>
@@ -589,6 +597,9 @@ function App(): React.JSX.Element {
                   onSelectSlot={layout.selectSlot}
                   onOverflow={layout.growSlotOverflow}
                   prefs={settings?.layout}
+                  docTitle={layout.doc.title}
+                  pageNo={layout.doc.pages.findIndex((p) => p.id === page.id) + 1}
+                  totalPages={layout.doc.pages.length}
                 />
               ))}
           </div>

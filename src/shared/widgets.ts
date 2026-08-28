@@ -4,7 +4,7 @@
  */
 
 /** 控件标识（与标记名一致：:::stat → stat） */
-export type WidgetId = 'stat' | 'quote' | 'info' | 'timeline'
+export type WidgetId = 'stat' | 'quote' | 'info' | 'timeline' | 'image' | 'qrcode' | 'toc'
 
 /** 控件参数（键值对，渲染组件与用户表单共用） */
 export type WidgetParams = Record<string, string>
@@ -59,6 +59,35 @@ export const WIDGET_REGISTRY: Record<WidgetId, WidgetDef> = {
       items: {
         desc: '事件列表，格式：时间|事件，多条用分号;分隔',
         example: '09:30|沪指高开; 10:15|科技板块拉升; 15:00|收盘涨1.2%'
+      }
+    }
+  },
+  image: {
+    id: 'image',
+    name: '配图',
+    usage: '在正文中插入一张配图（必须是真实可访问的图片 URL，不知道有效 URL 时不要使用此控件）。',
+    params: {
+      url: { desc: '图片直链（https 开头，以 .png/.jpg/.webp 结尾优先）', example: 'https://example.com/cover.jpg' },
+      caption: { desc: '图注（一句话）', example: '发布会现场' }
+    }
+  },
+  qrcode: {
+    id: 'qrcode',
+    name: '二维码',
+    usage: '把一个网址/文字生成二维码，适合引导读者访问链接（订阅页、活动页等）。',
+    params: {
+      data: { desc: '二维码内容（网址或文字）', example: 'https://example.com/subscribe' },
+      caption: { desc: '二维码下方说明', example: '扫码订阅本报' }
+    }
+  },
+  toc: {
+    id: 'toc',
+    name: '本期看点',
+    usage: '目录式罗列本期最重要条目，适合头版侧栏或头页开篇导读。',
+    params: {
+      items: {
+        desc: '条目列表，格式：标题|一句话提要，多条用分号;分隔',
+        example: 'AI 评测大战|四大阵营同日竞速; Rust 新里程碑|协议栈完成审计'
       }
     }
   }

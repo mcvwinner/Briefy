@@ -117,6 +117,44 @@ const useStyles = makeStyles({
     pointerEvents: 'none',
     userSelect: 'none'
   },
+  sheetHeader: {
+    position: 'absolute',
+    top: '6mm',
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    borderTopWidth: '0',
+    borderRightWidth: '0',
+    borderBottomWidth: '0.5mm',
+    borderLeftWidth: '0',
+    borderTopStyle: 'solid',
+    borderRightStyle: 'solid',
+    borderBottomStyle: 'solid',
+    borderLeftStyle: 'solid',
+    borderTopColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderBottomColor: tokens.colorNeutralStroke1,
+    borderLeftColor: 'transparent',
+    paddingBottom: '2mm',
+    fontSize: '9pt',
+    color: tokens.colorNeutralForeground2,
+    pointerEvents: 'none'
+  },
+  sheetHeaderTitle: {
+    fontWeight: tokens.fontWeightSemibold,
+    fontSize: '11pt',
+    color: tokens.colorNeutralForeground1
+  },
+  sheetFooter: {
+    position: 'absolute',
+    bottom: '5mm',
+    left: 0,
+    right: 0,
+    textAlign: 'center',
+    fontSize: '8.5pt',
+    color: tokens.colorNeutralForeground3,
+    pointerEvents: 'none'
+  },
   slotStatus: {
     position: 'absolute',
     bottom: '4px',
@@ -189,8 +227,13 @@ interface PageViewProps {
   onSelectSlot: (id: string | null) => void
   /** 槽位实际高度超出预估时回写（触发重新流式排布与分页）；打印视图不传 */
   onOverflow?: (slotId: string, deltaMm: number) => void
-  /** 版式偏好（页边距/栏距/字体/字号/行距/黑白优先）；缺省 = 内置默认 */
+  /** 版式偏好（页边距/栏距/字体/字号/行距/黑白优先/页眉页脚）；缺省 = 内置默认 */
   prefs?: LayoutPrefs
+  /** 报头文字（页眉开启 title 时显示，取 doc.title） */
+  docTitle?: string
+  /** 页码（页脚 pageNo 开启时显示：第 X 页 · 共 N 页） */
+  pageNo?: number
+  totalPages?: number
 }
 
 /**
@@ -210,7 +253,7 @@ function groupColumns(slots: Slot[]): { full: Slot[]; left: Slot[]; right: Slot[
 }
 
 /** A4 页面：全宽槽位纵向流 + 左右半栏真实并排 */
-function PageView({ page, selectedSlotId, onSelectSlot, onOverflow, prefs }: PageViewProps): React.JSX.Element {
+function PageView({ page, selectedSlotId, onSelectSlot, onOverflow, prefs, docTitle, pageNo, totalPages }: PageViewProps): React.JSX.Element {
   const styles = useStyles()
   const { full, left, right } = groupColumns(page.slots)
 
@@ -284,7 +327,31 @@ function PageView({ page, selectedSlotId, onSelectSlot, onOverflow, prefs }: Pag
   // 无半栏槽位时的兜底：只渲染 full 流
   if (rows.length === 0) full.forEach((s) => rows.push(renderSlot(s)))
 
-  return <div className={styles.sheet} style={{ padding: margin, filter }}>{rows}</div>
+  // 页眉页脚（P6c）：绘制在页边距区（absolute），不占内容高、不影响分页计算
+  const header = prefs?.header
+  const today = new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' })
+
+  return (
+    <div className={styles.sheet} style={{ padding: margin, filter }}>
+      {header?.title && docTitle && (
+        <div className={styles.sheetHeader} style={{ left: margin, right: margin }}>
+          <span className={styles.sheetHeaderTitle}>{docTitle}</span>
+          {header?.date && <span>{today}</span>}
+        </div>
+      )}
+      {!header?.title && header?.date && (
+        <div className={styles.sheetHeader} style={{ left: margin, right: margin }}>
+          <span>{today}</span>
+        </div>
+      )}
+      {header?.pageNo && pageNo !== undefined && (
+        <div className={styles.sheetFooter}>
+          {totalPages !== undefined ? `第 ${pageNo} 页 · 共 ${totalPages} 页` : `第 ${pageNo} 页`}
+        </div>
+      )}
+      {rows}
+    </div>
+  )
 }
 
 export default PageView
