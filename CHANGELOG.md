@@ -2,6 +2,12 @@
 
 本项目的所有显著变更记录于此。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [0.9.3] - 2026-08-28
+
+### 修复
+
+- **CSP 补 worker-src**：`index.html` 显式声明 `worker-src 'self' blob:`，避免第三方库/工具创建的 blob Worker 被 `script-src` 兜底拦截（控制台报 CSP 违规告警）。
+
 ## [0.9.2] - 2026-08-28
 
 ### 修复
