@@ -19,15 +19,26 @@ export async function readSettings(): Promise<AiSettings> {
     const parsed: unknown = JSON.parse(raw)
     // 只取已知字段，防止文件被手改出脏数据
     if (parsed && typeof parsed === 'object') {
-      const { apiKey = '', baseUrl = '', model = '', theme = 'light', tavilyKey = '', sources = [] } =
-        parsed as Record<string, unknown>
+      const s = parsed as Record<string, unknown>
+      const { apiKey = '', baseUrl = '', model = '', theme = 'light', tavilyKey = '', sources = [] } = s
+      // P6a/P6b 字段（layout/stylePrompt/roleDuties）：形状校验后透传，防脏数据但不丢配置
+      const layout =
+        s.layout && typeof s.layout === 'object' ? (s.layout as AiSettings['layout']) : undefined
+      const stylePrompt = typeof s.stylePrompt === 'string' ? s.stylePrompt : undefined
+      const roleDuties =
+        s.roleDuties && typeof s.roleDuties === 'object' && !Array.isArray(s.roleDuties)
+          ? (s.roleDuties as AiSettings['roleDuties'])
+          : undefined
       return {
         apiKey: typeof apiKey === 'string' ? apiKey : '',
         baseUrl: typeof baseUrl === 'string' ? baseUrl : '',
         model: typeof model === 'string' ? model : '',
         theme: theme === 'dark' ? 'dark' : 'light',
         tavilyKey: typeof tavilyKey === 'string' ? tavilyKey : '',
-        sources: Array.isArray(sources) ? sources : []
+        sources: Array.isArray(sources) ? sources : [],
+        layout,
+        stylePrompt,
+        roleDuties
       }
     }
   } catch {

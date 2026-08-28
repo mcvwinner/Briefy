@@ -2,6 +2,12 @@
 
 本项目的所有显著变更记录于此。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [0.13.2] - 2026-08-28
+
+### 修复（设置持久化丢失）
+
+- **新设置字段重启即丢**：settings.json 读取侧的字段白名单未包含 P6 新增的 layout（版式参数/黑白优先/页眉页脚）/ stylePrompt（风格提示词）/ roleDuties（角色自定义），保存后读取被丢弃导致重启全部复位。已在读取侧透传并做形状校验（防脏数据但不丢配置）。
+
 ## [0.13.1] - 2026-08-28
 
 ### 改进
