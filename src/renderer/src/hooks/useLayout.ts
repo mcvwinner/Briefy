@@ -62,15 +62,18 @@ export function useLayout(prefs?: LayoutPrefs) {
     [doc, geo, repaginateAll]
   )
 
-  const updateSlot = useCallback(
-    (pageId: string, slotId: string, patch: Partial<Slot>): void => {
-      updatePage(pageId, (page) => ({
-        ...page,
-        slots: page.slots.map((s) => (s.id === slotId ? { ...s, ...patch } : s))
-      }))
-    },
-    [updatePage]
-  )
+  /** 更新槽位（全文档按 slotId 定位）：生成期间溢出重排可能把槽位挪页，
+   *  不能用旧 pageId 查找，否则内容写丢失 → UI 永远卡在"生成中" */
+  const updateSlot = useCallback((slotId: string, patch: Partial<Slot>): void => {
+    setDoc((prev) => ({
+      ...prev,
+      pages: prev.pages.map((p) =>
+        p.slots.some((s) => s.id === slotId)
+          ? { ...p, slots: p.slots.map((s) => (s.id === slotId ? { ...s, ...patch } : s)) }
+          : p
+      )
+    }))
+  }, [])
 
   /** 改宽度模式：重推导 region + 重新流式排布 + 自动分页。
    *  宽度改变可能引发分页移动，改后自动切到该槽位实际所在的页 */
