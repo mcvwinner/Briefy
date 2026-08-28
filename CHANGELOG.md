@@ -2,6 +2,14 @@
 
 本项目的所有显著变更记录于此。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [0.13.5] - 2026-08-28
+
+### 新增（端到端验证基建）
+
+- **CDP 自动化验证链路**：dev 模式主进程开启远程调试端口（打包版不启用）；`scripts/e2e.mjs` 可自动加载指定 .briefy → 点击生成 → 轮询全部槽位完成 → 导出 PDF 自动落盘并校验，用于持续回归"生成 + 导出"全链路；
+- **dev 自动化钩子**：`dev:read-doc-path`（读任意 .briefy，仅未打包版）、`export:pdf` 支持自动落盘路径（跳过系统对话框，仅 dev）、URL `?autodoc=` 自动加载文档、`window.__briefyGetDoc` 只读探针；
+- 首轮端到端实测通过：测试文档 2 页 7 槽全部生成成功，导出 PDF 965KB。
+
 ## [0.13.4] - 2026-08-28
 
 ### 修复（生成卡住 / 跨页队列停摆）

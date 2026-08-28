@@ -67,7 +67,8 @@ declare global {
       devExportState(): Promise<unknown>
       saveDoc(doc: LayoutDoc): Promise<string | null>
       openDoc(): Promise<LayoutDoc | null>
-      exportPdf(doc: LayoutDoc): Promise<string | null>
+      exportPdf(doc: LayoutDoc, savePath?: string): Promise<string | null>
+      readDocPath(path: string): Promise<string>
       /** 打印窗口：取待导出文档 / A4 页渲染完成后通知主进程 */
       getExportDoc(): Promise<LayoutDoc | null>
       renderReady(): Promise<boolean>
@@ -312,6 +313,23 @@ function App(): React.JSX.Element {
       setGenerating(false)
     }
   }
+
+  // dev 自动化：URL 带 ?autodoc=<路径> 时自动加载该 .briefy（配合 CDP 端到端验证）
+  const autoDoc = new URLSearchParams(window.location.search).get('autodoc')
+  useEffect(() => {
+    if (!autoDoc) return
+    void window.briefy
+      ?.readDocPath(autoDoc)
+      .then((raw) => layout.loadDoc(raw))
+      .catch((err) => console.error('autodoc 加载失败', err))
+    // 仅挂载时执行一次
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // dev 自动化探针：供 CDP 驱动脚本读取当前文档（始终暴露只读函数，无写入口）
+  useEffect(() => {
+    ;(window as unknown as Record<string, unknown>).__briefyGetDoc = () => layout.doc
+  })
 
   const isDark = settings?.theme === 'dark'
 

@@ -64,3 +64,9 @@ app.whenReady().then(async () => {
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
+
+// dev 模式：开启 CDP 远程调试端口（供自动化端到端验证；打包版不启用）。
+// 必须在 app ready 之前调用才生效
+if (!app.isPackaged) {
+  app.commandLine.appendSwitch('remote-debugging-port', '9222')
+}

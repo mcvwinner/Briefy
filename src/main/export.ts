@@ -1,4 +1,4 @@
-import { BrowserWindow, dialog, ipcMain } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import { writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
@@ -26,7 +26,9 @@ function preloadPath(): string {
 }
 
 export function registerExportIpc(): void {
-  ipcMain.handle('export:pdf', async (_event, doc: LayoutDoc) => {
+  ipcMain.handle(
+    'export:pdf',
+    async (_event, doc: LayoutDoc, savePath?: string) => {
     const source =
       BrowserWindow.getAllWindows().find((w) => !w.isDestroyed() && !w.webContents.getURL().includes('print=1')) ??
       BrowserWindow.getAllWindows().find((w) => !w.isDestroyed())
@@ -56,14 +58,19 @@ export function registerExportIpc(): void {
       })
 
       const win = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed() && w !== printWin) ?? source
-      const result = await dialog.showSaveDialog(win, {
-        title: '导出 PDF',
-        defaultPath: '报纸.pdf',
-        filters: [{ name: 'PDF 文档', extensions: ['pdf'] }]
-      })
-      if (result.canceled || !result.filePath) return null
-      await writeFile(result.filePath, pdfData)
-      return result.filePath
+      let filePath = savePath
+      // dev 自动化：传入 savePath 直接落盘，不弹系统对话框
+      if (!filePath) {
+        const result = await dialog.showSaveDialog(win, {
+          title: '导出 PDF',
+          defaultPath: '报纸.pdf',
+          filters: [{ name: 'PDF 文档', extensions: ['pdf'] }]
+        })
+        if (result.canceled || !result.filePath) return null
+        filePath = result.filePath
+      }
+      await writeFile(filePath, pdfData)
+      return filePath
     } finally {
       notifyRenderReady = null
       pendingDoc = null
@@ -73,6 +80,13 @@ export function registerExportIpc(): void {
 
   // 打印窗口渲染进程：取待导出文档
   ipcMain.handle('export:get-doc', () => pendingDoc)
+  // dev 自动化：读取任意路径的 .briefy（仅未打包版本可用）
+  ipcMain.handle('dev:read-doc-path', async (_event, path: string) => {
+    if (app.isPackaged) throw new Error('仅开发模式可用')
+    if (!path.toLowerCase().endsWith('.briefy')) throw new Error('仅支持 .briefy 文件')
+    const { readFile } = await import('node:fs/promises')
+    return readFile(path, 'utf-8')
+  })
   // 打印窗口渲染进程：A4 页面渲染完成
   ipcMain.handle('export:render-ready', () => {
     notifyRenderReady?.()
