@@ -67,6 +67,25 @@ const useStyles = makeStyles({
   hint: { fontSize: tokens.fontSizeBase200, color: tokens.colorNeutralForeground3 },
   fieldGap: { marginBottom: '4px' },
   promptArea: { minHeight: '120px' },
+  widgetInsertRow: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '4px',
+    marginTop: '6px'
+  },
+  widgetInsertBtn: {
+    fontSize: tokens.fontSizeBase200,
+    padding: '2px 8px',
+    borderRadius: tokens.borderRadiusMedium,
+    border: `1px solid ${tokens.colorNeutralStroke2}`,
+    backgroundColor: tokens.colorNeutralBackground2,
+    color: tokens.colorNeutralForeground2,
+    cursor: 'pointer',
+    ':hover': {
+      backgroundColor: tokens.colorNeutralBackground3Hover,
+      color: tokens.colorBrandForeground1
+    }
+  },
   deleteBtn: {
     marginTop: '12px',
     color: tokens.colorPaletteRedForeground1
@@ -200,13 +219,37 @@ function PropertiesPanel({
         </Field>
       )}
 
-      <Field label="提示词（这一格要什么）" className={styles.fieldGap}>
+      <Field
+        label="提示词（这一格要什么；下方按钮可快速插入控件模板）"
+        className={styles.fieldGap}
+      >
         <Textarea
           className={styles.promptArea}
           placeholder="例：总结今日头条科技新闻，200 字以内"
           value={slot.prompt}
           onChange={(_, data) => onChange({ prompt: data.value })}
         />
+        {/* 控件快速插入（ROADMAP Q3 控件使用引导）：点一下插入模板行，用户无需记语法 */}
+        <div className={styles.widgetInsertRow}>
+          {Object.values(WIDGET_REGISTRY).map((w) => {
+            const template = `:::${w.id}{${Object.entries(w.params)
+              .map(([k, v]) => `${k}:"<${v.desc}>"`)
+              .join(', ')}}`
+            return (
+              <button
+                key={w.id}
+                className={styles.widgetInsertBtn}
+                title={`插入 ${w.name} 模板：${template}`}
+                onClick={() => {
+                  const base = slot.prompt.trimEnd()
+                  onChange({ prompt: base ? `${base}\n${template}` : template })
+                }}
+              >
+                {w.name}
+              </button>
+            )
+          })}
+        </div>
       </Field>
 
       <Field label="宽度（版式自动重排）" className={styles.fieldGap}>

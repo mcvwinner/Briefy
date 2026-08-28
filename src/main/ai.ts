@@ -141,6 +141,7 @@ function buildSlotPrompt(
     styleSection,
     roleSection,
     timelyAnchor,
+    `控件建议：${ROLE_WIDGET_HINTS[roleKey] ?? '按栏目定位选用合适控件（见上方控件清单）'}`,
     `要求：内容紧凑、信息密度高、符合报纸文风。全文严格控制在 ${wordLimit} 字以内——这是版面物理容量的硬性上限，超出会被裁切；宁可精炼勿冗长，写完即止。`,
     `内容形式：${kindRules[kind] ?? kindRules.text}`,
     `槽位主题要求：${prompt}`
@@ -439,6 +440,16 @@ const PLAN_SCHEMA = z.object({
     )
     .min(1)
 })
+
+/** 按槽位角色推荐控件组合（ROADMAP Q3 控件使用引导）：用户无需知道控件语法，AI 自动选用 */
+const ROLE_WIDGET_HINTS: Record<string, string> = {
+  头条: '本槽一般不用控件；如需现场画面可配一张 :::image',
+  正文: '可用 :::quote 引用关键观点、:::info 补充背景说明、:::image 配一张相关图；数据对比处可插入 :::chart',
+  数据: '优先用 :::chart（bar/line/pie）呈现数据对比与趋势，关键数字用 :::stat 统计卡，少写散文',
+  快讯: '每条快讯中的关键数字可配 :::stat 统计卡，密集呈现',
+  提示框: '用 :::info 呈现提示/声明（tone 可选 info/warn/success）',
+  自定义: '按栏目定位选用合适控件（见上方控件清单）'
+}
 
 const REVIEW_SCHEMA = z.object({
   comments: z.array(
