@@ -140,7 +140,7 @@ function App(): React.JSX.Element {
     onConfirm: (value: string) => void
   } | null>(null)
 
-  const layout = useLayout()
+  const layout = useLayout(settings?.layout)
   const styles = useStyles()
 
   useEffect(() => {
@@ -384,7 +384,6 @@ function App(): React.JSX.Element {
       setTimeout(() => void window.briefy?.renderReady?.(), 100)
     })
   }, [])
-
   // 打印模式：仅渲染所有页面的干净版式，供 printToPDF 截取
   if (PRINT_MODE) {
     return (
@@ -392,7 +391,7 @@ function App(): React.JSX.Element {
         <div className="print-view">
           {(printDoc?.pages ?? []).map((page) => (
             <div key={page.id} className="print-page">
-              <PageView page={page} selectedSlotId={null} onSelectSlot={() => undefined} />
+              <PageView page={page} selectedSlotId={null} onSelectSlot={() => undefined} prefs={settings?.layout} />
             </div>
           ))}
         </div>
@@ -400,8 +399,21 @@ function App(): React.JSX.Element {
     )
   }
 
+  // 主题色偏好：覆盖 Fluent 品牌色 CSS 变量（前景/描边），缺省 = Fluent 品牌蓝
+  const accent = settings?.layout?.accentColor
+  const accentVars = accent
+    ? ({
+        '--colorBrandForeground1': accent,
+        '--colorBrandForeground2': accent,
+        '--colorBrandStroke1': accent
+      } as React.CSSProperties)
+    : undefined
+
   return (
-    <FluentProvider theme={isDark ? webDarkTheme : webLightTheme} style={{ height: '100vh' }}>
+    <FluentProvider
+      theme={isDark ? webDarkTheme : webLightTheme}
+      style={{ height: '100vh', ...accentVars }}
+    >
       <div className={`${styles.app} ${isDark ? 'theme-dark' : 'theme-light'}`}>
         <FluentToolbar aria-label="主工具栏" className={styles.toolbar}>
           {/* ---- 文件二级菜单：新建/打开/保存/导出 ---- */}
@@ -576,6 +588,7 @@ function App(): React.JSX.Element {
                   selectedSlotId={layout.selectedSlotId}
                   onSelectSlot={layout.selectSlot}
                   onOverflow={layout.growSlotOverflow}
+                  prefs={settings?.layout}
                 />
               ))}
           </div>

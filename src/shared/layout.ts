@@ -94,7 +94,7 @@ export function createSlot(role: SlotRole, region: Slot['region'], estHeight: nu
 
 // ---------- 版式规则：区域推导 ----------
 
-/** A4 页边距与内容宽度 */
+/** A4 页边距与内容宽度（内置默认；用户版式偏好可通过 resolveGeometry 覆盖） */
 export const MARGIN_MM = 15
 export const CONTENT_WIDTH_MM = 210 - MARGIN_MM * 2 // 180
 export const PAGE_HEIGHT_MM = 297
@@ -103,18 +103,44 @@ export const SLOT_GAP_MM = 8
 /** 槽位宽度类型（用户一键切换） */
 export type WidthMode = 'full' | 'half-left' | 'half-right' | 'sidebar'
 
-/** 由宽度模式推导 region.x / region.width */
-export function regionFor(widthMode: WidthMode): { x: number; width: number } {
+/** 版式几何：由用户偏好解析出的流式排布/分页常量（P6a） */
+export interface LayoutGeometry {
+  marginMM: number
+  gapMM: number
+  contentWidthMM: number
+  pageHeightMM: number
+}
+
+/** 由版式偏好解析几何（缺省 = 内置默认，保证既有稳定体验）；越界值回落默认 */
+export function resolveGeometry(prefs?: { marginMM?: number; gapMM?: number }): LayoutGeometry {
+  const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v))
+  const margin = prefs?.marginMM !== undefined ? clamp(prefs.marginMM, 10, 25) : MARGIN_MM
+  const gap = prefs?.gapMM !== undefined ? clamp(prefs.gapMM, 4, 12) : SLOT_GAP_MM
+  return {
+    marginMM: margin,
+    gapMM: gap,
+    contentWidthMM: 210 - margin * 2,
+    pageHeightMM: PAGE_HEIGHT_MM
+  }
+}
+
+/** 由宽度模式推导 region.x / region.width（可传入几何以适配自定义页边距） */
+export function regionFor(
+  widthMode: WidthMode,
+  geo: LayoutGeometry = resolveGeometry()
+): { x: number; width: number } {
+  const margin = geo.marginMM
+  const content = geo.contentWidthMM
   switch (widthMode) {
     case 'half-left':
-      return { x: MARGIN_MM, width: CONTENT_WIDTH_MM / 2 - 4 }
+      return { x: margin, width: content / 2 - 4 }
     case 'half-right':
-      return { x: MARGIN_MM + CONTENT_WIDTH_MM / 2 + 4, width: CONTENT_WIDTH_MM / 2 - 4 }
+      return { x: margin + content / 2 + 4, width: content / 2 - 4 }
     case 'sidebar':
-      return { x: 210 - MARGIN_MM - 55, width: 55 }
+      return { x: 210 - margin - 55, width: 55 }
     case 'full':
     default:
-      return { x: MARGIN_MM, width: CONTENT_WIDTH_MM }
+      return { x: margin, width: content }
   }
 }
 
@@ -130,15 +156,15 @@ export const DEFAULT_SLOT_HEIGHT: Record<SlotRole, number> = {
 
 /**
  * 把槽位按列分组并纵向流式排布：同列的下一个槽位 y = 上一个 y + 实际高度 + 间距。
- * 返回更新后的槽位数组（原数组不修改）。
+ * geo 缺省 = 内置默认几何。返回更新后的槽位数组（原数组不修改）。
  */
-export function flowSlots(slots: Slot[]): Slot[] {
+export function flowSlots(slots: Slot[], geo: LayoutGeometry = resolveGeometry()): Slot[] {
   const columnTails = new Map<number, number>() // 列标识 → 底部 y
   const columnKey = (s: Slot): number => Math.round(s.region.x / 10) // 10mm 精度同列
   return slots.map((slot) => {
     const key = columnKey(slot)
     const prevTail = columnTails.get(key)
-    const y = prevTail !== undefined ? prevTail + SLOT_GAP_MM : MARGIN_MM
+    const y = prevTail !== undefined ? prevTail + geo.gapMM : geo.marginMM
     const bottom = y + slot.estHeight + (slot.overflow ?? 0)
     columnTails.set(key, bottom)
     return { ...slot, region: { ...slot.region, y } }
@@ -151,11 +177,11 @@ export function flowSlots(slots: Slot[]): Slot[] {
  * 因此直接用槽位自身 bottom 判断溢出，而不是单栏游标累加（后者会误判另一栏的槽位）。
  * 搬入新页后重新流式排布；若新页仍溢出则继续拆分（收敛循环，保底轮次防意外）。
  */
-export function paginate(pages: Page[]): Page[] {
+export function paginate(pages: Page[], geo: LayoutGeometry = resolveGeometry()): Page[] {
   const result: Page[] = []
-  const limit = PAGE_HEIGHT_MM - MARGIN_MM
+  const limit = geo.pageHeightMM - geo.marginMM
   for (const page of pages) {
-    let current: Page = { ...page, slots: flowSlots(page.slots) }
+    let current: Page = { ...page, slots: flowSlots(page.slots, geo) }
     for (let round = 0; round < 50; round++) {
       const kept: Slot[] = []
       const overflow: Slot[] = []
@@ -172,7 +198,7 @@ export function paginate(pages: Page[]): Page[] {
         break
       }
       result.push({ ...current, slots: kept })
-      current = { id: crypto.randomUUID(), slots: flowSlots(overflow) }
+      current = { id: crypto.randomUUID(), slots: flowSlots(overflow, geo) }
       if (round === 49) result.push(current) // 保底：达到轮次上限直接收尾
     }
   }

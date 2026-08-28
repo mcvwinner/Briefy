@@ -7,22 +7,25 @@ import {
   migrateSlotSources,
   paginate,
   regionFor,
-  MARGIN_MM,
+  resolveGeometry,
   DEFAULT_SLOT_HEIGHT,
   type LayoutDoc,
+  type LayoutGeometry,
   type Page,
   type Slot,
   type SlotRole,
   type WidthMode
 } from '../../../shared/layout'
-import type { InfoSource } from '../../../shared/settings'
+import type { InfoSource, LayoutPrefs } from '../../../shared/settings'
 import { parseLayoutDoc } from '../../../shared/layout'
 
-/** 排版文档的全部操作：槽位增删改、多页管理、文档级操作 */
-export function useLayout() {
+/** 排版文档的全部操作：槽位增删改、多页管理、文档级操作。
+ *  prefs：版式偏好（页边距/栏距），缺省 = 内置默认 */
+export function useLayout(prefs?: LayoutPrefs) {
   const [doc, setDoc] = useState<LayoutDoc>(createEmptyDoc)
   const [selectedSlotId, setSelectedSlotId] = useState<string | null>(null)
   const [currentPageId, setCurrentPageId] = useState<string>(() => doc.pages[0].id)
+  const geo = useMemo<LayoutGeometry>(() => resolveGeometry(prefs), [prefs?.marginMM, prefs?.gapMM])
 
   const updatePage = useCallback((pageId: string, updater: (page: Page) => Page) => {
     setDoc((prev) => ({
@@ -35,14 +38,14 @@ export function useLayout() {
    *  首页 id 保留（当前页不跳变），新页由 paginate 生成 */
   const repaginateAll = useCallback((pages: Page[]): Page[] => {
     const flat = pages.flatMap((p) => p.slots)
-    return paginate([{ id: pages[0]?.id ?? crypto.randomUUID(), slots: flat }])
-  }, [])
+    return paginate([{ id: pages[0]?.id ?? crypto.randomUUID(), slots: flat }], geo)
+  }, [geo])
 
   /** 添加槽位：选角色 + 宽度模式，自动流式排布 + 自动分页。
    *  分页可能把新槽位挤到新页，添加后自动切到它实际所在的页并选中（否则用户以为没生效） */
   const addSlot = useCallback(
     (pageId: string, role: SlotRole, widthMode: WidthMode, prompt = ''): void => {
-      const region = { ...regionFor(widthMode), y: MARGIN_MM }
+      const region = { ...regionFor(widthMode, geo), y: geo.marginMM }
       const slot = createSlot(role, region, DEFAULT_SLOT_HEIGHT[role])
       if (prompt) slot.prompt = prompt
       // 单次 setDoc：摊平重排（贪心装满，避免碎片空白页）
@@ -56,7 +59,7 @@ export function useLayout() {
       if (target) setCurrentPageId(target.id)
       setSelectedSlotId(slot.id)
     },
-    [doc]
+    [doc, geo, repaginateAll]
   )
 
   const updateSlot = useCallback(
@@ -73,7 +76,7 @@ export function useLayout() {
    *  宽度改变可能引发分页移动，改后自动切到该槽位实际所在的页 */
   const setSlotWidth = useCallback(
     (pageId: string, slotId: string, widthMode: WidthMode): void => {
-      const region = regionFor(widthMode)
+      const region = regionFor(widthMode, geo)
       const pages = doc.pages.map((p) => {
         if (p.id !== pageId) return p
         const slots = p.slots.map((s) =>
@@ -86,7 +89,7 @@ export function useLayout() {
       const target = nextPages.find((p) => p.slots.some((s) => s.id === slotId))
       if (target) setCurrentPageId(target.id)
     },
-    [doc, repaginateAll]
+    [doc, geo, repaginateAll]
   )
 
   /** 槽位实际渲染高度超出预估时回写 overflow（PageView 测量触发），
@@ -107,7 +110,7 @@ export function useLayout() {
         setCurrentPageId(nextPages[0].id)
       }
     },
-    [doc, currentPageId, repaginateAll]
+    [doc, currentPageId, geo, repaginateAll]
   )
 
   const removeSlot = useCallback(

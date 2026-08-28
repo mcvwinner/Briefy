@@ -2,6 +2,7 @@ import type * as React from 'react'
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { makeStyles, tokens } from '@fluentui/react-components'
 import type { Page, Slot } from '../../../shared/layout'
+import type { LayoutPrefs } from '../../../shared/settings'
 import { renderInlineMarkdown } from '../utils/markdown'
 import { parseContent } from '../../../shared/parse'
 import { renderContentNodes } from '../utils/widgets-render'
@@ -188,6 +189,8 @@ interface PageViewProps {
   onSelectSlot: (id: string | null) => void
   /** 槽位实际高度超出预估时回写（触发重新流式排布与分页）；打印视图不传 */
   onOverflow?: (slotId: string, deltaMm: number) => void
+  /** 版式偏好（页边距/栏距/字体/字号/行距/黑白优先）；缺省 = 内置默认 */
+  prefs?: LayoutPrefs
 }
 
 /**
@@ -207,9 +210,17 @@ function groupColumns(slots: Slot[]): { full: Slot[]; left: Slot[]; right: Slot[
 }
 
 /** A4 页面：全宽槽位纵向流 + 左右半栏真实并排 */
-function PageView({ page, selectedSlotId, onSelectSlot, onOverflow }: PageViewProps): React.JSX.Element {
+function PageView({ page, selectedSlotId, onSelectSlot, onOverflow, prefs }: PageViewProps): React.JSX.Element {
   const styles = useStyles()
   const { full, left, right } = groupColumns(page.slots)
+
+  // 版式偏好（缺省 = 现有稳定体验）；灰阶用 CSS filter，字体字号行距用内联样式
+  const margin = prefs?.marginMM !== undefined ? `${Math.min(25, Math.max(10, prefs.marginMM))}mm` : '15mm'
+  const gap = prefs?.gapMM !== undefined ? `${Math.min(12, Math.max(4, prefs.gapMM))}mm` : '8mm'
+  const font = prefs?.fontFamily
+  const fontSize = prefs?.fontSizePt !== undefined ? `${Math.min(14, Math.max(8, prefs.fontSizePt))}pt` : undefined
+  const lineHeight = prefs?.lineHeight !== undefined ? `${Math.min(2, Math.max(1.2, prefs.lineHeight))}` : undefined
+  const filter = prefs?.grayscale ? 'grayscale(1)' : undefined
 
   const renderSlot = (slot: Slot): React.JSX.Element => (
     <SlotBox
@@ -220,7 +231,7 @@ function PageView({ page, selectedSlotId, onSelectSlot, onOverflow }: PageViewPr
       onOverflow={onOverflow}
     >
       {slot.status === 'done' && slot.content ? (
-        <div className={styles.slotContent}>
+        <div className={styles.slotContent} style={{ fontFamily: font, fontSize, lineHeight }}>
           <SlotContent kind={slot.kind} content={slot.content} />
         </div>
       ) : slot.status === 'generating' ? (
@@ -235,7 +246,6 @@ function PageView({ page, selectedSlotId, onSelectSlot, onOverflow }: PageViewPr
       {slot.status === 'generating' && <span className={styles.slotStatus}>⟳</span>}
     </SlotBox>
   )
-
   // 有左右栏时：full 槽位按序渲染；遇到首个半栏槽位时进入"双栏区"，双栏区结束后继续 full 流。
   // 注意：双栏区的开启条件必须包含右栏（只看左栏时，"左栏空、右栏有孤立槽位、full 已耗尽"
   // 会导致循环体不推进任何游标 → 无限渲染循环 → 页面卡死）
@@ -250,7 +260,7 @@ function PageView({ page, selectedSlotId, onSelectSlot, onOverflow }: PageViewPr
       // 开启双栏区
       inColumns = true
       rows.push(
-        <div key={`cols-${li}-${ri}`} className={styles.columnsRow}>
+        <div key={`cols-${li}-${ri}`} className={styles.columnsRow} style={{ gap }}>
           <div className={styles.column}>{left[li] ? renderSlot(left[li++]) : null}</div>
           <div className={styles.column}>{right[ri] ? renderSlot(right[ri++]) : null}</div>
         </div>
@@ -259,7 +269,7 @@ function PageView({ page, selectedSlotId, onSelectSlot, onOverflow }: PageViewPr
     }
     if (inColumns && (li < left.length || ri < right.length)) {
       rows.push(
-        <div key={`cols-${li}-${ri}`} className={styles.columnsRow}>
+        <div key={`cols-${li}-${ri}`} className={styles.columnsRow} style={{ gap }}>
           <div className={styles.column}>{left[li] ? renderSlot(left[li++]) : null}</div>
           <div className={styles.column}>{right[ri] ? renderSlot(right[ri++]) : null}</div>
         </div>
@@ -274,7 +284,7 @@ function PageView({ page, selectedSlotId, onSelectSlot, onOverflow }: PageViewPr
   // 无半栏槽位时的兜底：只渲染 full 流
   if (rows.length === 0) full.forEach((s) => rows.push(renderSlot(s)))
 
-  return <div className={styles.sheet}>{rows}</div>
+  return <div className={styles.sheet} style={{ padding: margin, filter }}>{rows}</div>
 }
 
 export default PageView

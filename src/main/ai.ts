@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import type { AiSettings } from '../shared/settings'
 import type { ToolId } from '../shared/layout'
-import { ROLE_DEFS } from '../shared/layout'
+import { ROLE_DEFS, type SlotRole } from '../shared/layout'
 import { tavilySearch, fetchPageText } from './tools'
 import { buildWidgetPromptSection } from '../shared/widgets'
 
@@ -84,14 +84,16 @@ function buildOutlineSection(context?: DocContext, currentIndex = -1): string {
   ].join('\n')
 }
 
-/** 拼装单个槽位的生成提示词：全局规则 + 版面大纲 + 内容形式要求 + 用户提示词 */
+/** 拼装单个槽位的生成提示词：全局规则 + 版面大纲 + 内容形式要求 + 用户提示词。
+ *  settings 提供 P6b 增强：全局风格提示词（本报调性）+ 角色职责自定义覆盖 */
 function buildSlotPrompt(
   prompt: string,
   role: string,
   kind: string,
   context?: DocContext,
   index = -1,
-  estHeight = 45
+  estHeight = 45,
+  settings?: AiSettings
 ): string {
   const kindRules: Record<string, string> = {
     text: [
@@ -108,12 +110,23 @@ function buildSlotPrompt(
     table: '输出一个表格。使用 | 分隔的 Markdown 表格语法，首行为表头；单元格内可用 **加粗** 强调关键数字。'
   }
   const roleDef = Object.values(ROLE_DEFS).find((d) => d.name === role)
-  const roleSection = roleDef?.duty ? `槽位职责：${roleDef.duty}` : ''
+  // P6b：角色职责可被用户自定义覆盖（settings.roleDuties 以角色 key 存储默认生效）
+  const roleKey = (Object.entries(ROLE_DEFS).find(([, v]) => v.name === role)?.[0] ?? role) as SlotRole
+  const customDuty = settings?.roleDuties?.[roleKey]
+  const roleSection = customDuty?.trim()
+    ? `槽位职责（用户自定义）：${customDuty.trim()}`
+    : roleDef?.duty
+      ? `槽位职责：${roleDef.duty}`
+      : ''
+  const styleSection = settings?.stylePrompt?.trim()
+    ? `本报风格（全局调性，所有内容需符合）：${settings.stylePrompt.trim()}`
+    : ''
   // 容量换算：经验值约 4.5 字/mm（报纸字号），给出硬性字数上限防溢出破版
   const wordLimit = Math.max(40, Math.round(estHeight * 4.5))
   const sections = [
     '你是一份个性化报纸的内容作者。请根据要求撰写该槽位内容。',
     buildOutlineSection(context, index),
+    styleSection,
     roleSection,
     `要求：内容紧凑、信息密度高、符合报纸文风。全文严格控制在 ${wordLimit} 字以内——这是版面物理容量的硬性上限，超出会被裁切；宁可精炼勿冗长，写完即止。`,
     `内容形式：${kindRules[kind] ?? kindRules.text}`,
@@ -162,7 +175,7 @@ export async function generateSlotContent(
     {
       role: 'user',
       content: [
-        buildSlotPrompt(prompt, role, kind, docContext, slotIndex, estHeight),
+        buildSlotPrompt(prompt, role, kind, docContext, slotIndex, estHeight, settings),
         // 信息源注入：AI 基于真实抓取内容写作，而非凭记忆
         ...(sourceContents.length > 0
           ? [
