@@ -1,28 +1,25 @@
 import { useCallback, useMemo, useState } from 'react'
 import {
-  createBlock,
   createEmptyDoc,
   createEmptyPage,
-  type Block,
+  createSlot,
+  flowSlots,
+  paginate,
+  regionFor,
+  MARGIN_MM,
+  DEFAULT_SLOT_HEIGHT,
   type LayoutDoc,
-  type Page
+  type Page,
+  type Slot,
+  type SlotRole,
+  type WidthMode
 } from '../../../shared/layout'
+import { parseLayoutDoc } from '../../../shared/layout'
 
-/** A4 页面尺寸（mm） */
-export const PAGE_WIDTH_MM = 210
-export const PAGE_HEIGHT_MM = 297
-
-/** 最小区块尺寸（mm），防止拖出不可见区块 */
-const MIN_BLOCK_MM = 15
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value))
-}
-
-/** 排版文档的全部操作：增删改区块、多页管理 */
+/** 排版文档的全部操作：槽位增删改、多页管理、文档级操作 */
 export function useLayout() {
   const [doc, setDoc] = useState<LayoutDoc>(createEmptyDoc)
-  const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null)
+  const [selectedSlotId, setSelectedSlotId] = useState<string | null>(null)
   const [currentPageId, setCurrentPageId] = useState<string>(() => doc.pages[0].id)
 
   const updatePage = useCallback((pageId: string, updater: (page: Page) => Page) => {
@@ -32,37 +29,54 @@ export function useLayout() {
     }))
   }, [])
 
-  const addBlock = useCallback(
-    (pageId: string, x: number, y: number, width: number, height: number): void => {
-      const block = createBlock(
-        clamp(x, 0, PAGE_WIDTH_MM - MIN_BLOCK_MM),
-        clamp(y, 0, PAGE_HEIGHT_MM - MIN_BLOCK_MM),
-        clamp(width, MIN_BLOCK_MM, PAGE_WIDTH_MM),
-        clamp(height, MIN_BLOCK_MM, PAGE_HEIGHT_MM)
-      )
-      updatePage(pageId, (page) => ({ ...page, blocks: [...page.blocks, block] }))
-      setSelectedBlockId(block.id)
+  /** 添加槽位：选角色 + 宽度模式，自动流式排布 + 自动分页 */
+  const addSlot = useCallback(
+    (pageId: string, role: SlotRole, widthMode: WidthMode, prompt = ''): void => {
+      updatePage(pageId, (page) => {
+        const region = { ...regionFor(widthMode), y: MARGIN_MM }
+        const slot = createSlot(role, region, DEFAULT_SLOT_HEIGHT[role])
+        slot.prompt = prompt
+        const flowed = flowSlots([...page.slots, slot])
+        return { ...page, slots: flowed }
+      })
+      // 触发全局自动分页整理
+      setDoc((prev) => ({ ...prev, pages: paginate(prev.pages) }))
     },
     [updatePage]
   )
 
-  const updateBlock = useCallback(
-    (pageId: string, blockId: string, patch: Partial<Block>): void => {
+  const updateSlot = useCallback(
+    (pageId: string, slotId: string, patch: Partial<Slot>): void => {
       updatePage(pageId, (page) => ({
         ...page,
-        blocks: page.blocks.map((b) => (b.id === blockId ? { ...b, ...patch } : b))
+        slots: page.slots.map((s) => (s.id === slotId ? { ...s, ...patch } : s))
       }))
     },
     [updatePage]
   )
 
-  const removeBlock = useCallback(
-    (pageId: string, blockId: string): void => {
-      updatePage(pageId, (page) => ({
-        ...page,
-        blocks: page.blocks.filter((b) => b.id !== blockId)
-      }))
-      setSelectedBlockId(null)
+  /** 改宽度模式：重推导 region + 重新流式排布 */
+  const setSlotWidth = useCallback(
+    (pageId: string, slotId: string, widthMode: WidthMode): void => {
+      updatePage(pageId, (page) => {
+        const region = regionFor(widthMode)
+        const slots = page.slots.map((s) =>
+          s.id === slotId ? { ...s, region: { ...s.region, ...region } } : s
+        )
+        return { ...page, slots: flowSlots(slots) }
+      })
+      setDoc((prev) => ({ ...prev, pages: paginate(prev.pages) }))
+    },
+    [updatePage]
+  )
+
+  const removeSlot = useCallback(
+    (pageId: string, slotId: string): void => {
+      updatePage(pageId, (page) => {
+        const slots = flowSlots(page.slots.filter((s) => s.id !== slotId))
+        return { ...page, slots }
+      })
+      setSelectedSlotId(null)
     },
     [updatePage]
   )
@@ -80,47 +94,49 @@ export function useLayout() {
       if (prev.pages.length <= 1) return prev // 至少保留一页
       const idx = prev.pages.findIndex((p) => p.id === pageId)
       const pages = prev.pages.filter((p) => p.id !== pageId)
-      // 若删除的是当前页，跳到相邻页
       const next = pages[Math.min(idx, pages.length - 1)]
       setCurrentPageId(next.id)
       return { ...prev, pages }
     })
   }, [])
 
-  /** 当前选中的区块及其所属页（供属性面板使用） */
-  const selection = useMemo(() => {
-    for (const page of doc.pages) {
-      const block = page.blocks.find((b) => b.id === selectedBlockId)
-      if (block) return { page, block }
-    }
-    return null
-  }, [doc, selectedBlockId])
-
   /** 新建文档（清空为单页） */
   const newDoc = useCallback((): void => {
     const fresh = createEmptyDoc()
     setDoc(fresh)
     setCurrentPageId(fresh.pages[0].id)
-    setSelectedBlockId(null)
+    setSelectedSlotId(null)
   }, [])
 
-  /** 加载文档（打开 .briefy 文件后整体替换） */
-  const loadDoc = useCallback((next: LayoutDoc): void => {
+  /** 加载文档（接受 v2 doc 或旧 v1 JSON 字符串，内部统一迁移） */
+  const loadDoc = useCallback((docOrRaw: LayoutDoc | string): void => {
+    const next =
+      typeof docOrRaw === 'string' ? parseLayoutDoc(docOrRaw) : docOrRaw
     setDoc(next)
     setCurrentPageId(next.pages[0]?.id ?? '')
-    setSelectedBlockId(null)
+    setSelectedSlotId(null)
   }, [])
+
+  /** 当前选中的槽位及其所属页（供属性面板使用） */
+  const selection = useMemo(() => {
+    for (const page of doc.pages) {
+      const slot = page.slots.find((s) => s.id === selectedSlotId)
+      if (slot) return { page, slot }
+    }
+    return null
+  }, [doc, selectedSlotId])
 
   return {
     doc,
     selection,
-    selectedBlockId,
+    selectedSlotId,
     currentPageId,
     setCurrentPageId,
-    selectBlock: setSelectedBlockId,
-    addBlock,
-    updateBlock,
-    removeBlock,
+    selectSlot: setSelectedSlotId,
+    addSlot,
+    updateSlot,
+    setSlotWidth,
+    removeSlot,
     addPage,
     removePage,
     newDoc,

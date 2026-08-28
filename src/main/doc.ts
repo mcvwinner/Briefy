@@ -1,47 +1,12 @@
 import { BrowserWindow, dialog, ipcMain } from 'electron'
 import { readFile, writeFile } from 'node:fs/promises'
-import type { Block, LayoutDoc, ToolId } from '../shared/layout'
+import { parseLayoutDoc, type LayoutDoc } from '../shared/layout'
 
-/** 修补旧版文件的区块：补默认工具字段，保证打开不崩 */
-function normalizeBlocks(blocks: unknown): Block[] {
-  if (!Array.isArray(blocks)) return []
-  return blocks.map((b) => {
-    const block = b as Partial<Block>
-    const validTools: ToolId[] = ['getCurrentTime', 'webSearch', 'fetchPage', 'readReference']
-    return {
-      id: block.id ?? crypto.randomUUID(),
-      x: typeof block.x === 'number' ? block.x : 0,
-      y: typeof block.y === 'number' ? block.y : 0,
-      width: typeof block.width === 'number' ? block.width : 50,
-      height: typeof block.height === 'number' ? block.height : 40,
-      prompt: typeof block.prompt === 'string' ? block.prompt : '',
-      // 旧文件的 text-image/image 形式归一化为 text（生图服务未接入）
-      kind: block.kind === 'table' ? 'table' : 'text',
-      // 旧文件没有 tools 字段 → 默认给时间工具
-      tools: Array.isArray(block.tools)
-        ? block.tools.filter((t) => validTools.includes(t))
-        : ['getCurrentTime'],
-      status: block.status ?? 'empty',
-      content: typeof block.content === 'string' ? block.content : undefined
-    }
-  })
-}
-
-/** 简单的结构校验 + 兼容修补，防止打开任意 JSON 崩溃 */
-function parseLayoutDoc(raw: string): LayoutDoc {
-  const data: unknown = JSON.parse(raw)
-  if (!data || typeof data !== 'object') throw new Error('不是有效的 Briefy 设计文件')
-  const doc = data as Partial<LayoutDoc>
-  if (doc.version !== 1 || !Array.isArray(doc.pages)) throw new Error('设计文件版本不受支持')
-  return {
-    version: 1,
-    title: doc.title ?? '未命名报纸',
-    pages: doc.pages.map((p) => ({ id: p.id ?? crypto.randomUUID(), blocks: normalizeBlocks(p.blocks) }))
-  }
-}
-
+/**
+ * .briefy 设计文件保存/打开。
+ * v1（blocks）与 v2（slots）统一由 parseLayoutDoc 迁移，写回时始终为 v2。
+ */
 export function registerDocIpc(): void {
-  // 保存：弹保存框 → 写入 .briefy（即 LayoutSpec JSON）
   ipcMain.handle('doc:save', async (_event, doc: LayoutDoc) => {
     const win = BrowserWindow.getAllWindows()[0]
     const result = await dialog.showSaveDialog(win, {
@@ -54,7 +19,6 @@ export function registerDocIpc(): void {
     return result.filePath
   })
 
-  // 打开：弹打开框 → 校验 → 返回文档
   ipcMain.handle('doc:open', async () => {
     const win = BrowserWindow.getAllWindows()[0]
     const result = await dialog.showOpenDialog(win, {

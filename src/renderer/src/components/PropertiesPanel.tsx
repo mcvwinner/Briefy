@@ -1,3 +1,4 @@
+import type * as React from 'react'
 import {
   Accordion,
   AccordionItem,
@@ -9,28 +10,36 @@ import {
   Field,
   Input,
   Option,
-  SpinButton,
   Textarea,
   makeStyles,
   tokens
 } from '@fluentui/react-components'
 import { DeleteRegular } from '@fluentui/react-icons'
 import { useState } from 'react'
-import type { Block, BlockKind, ToolId } from '../../../shared/layout'
+import type { Slot, SlotKind, SlotRole, ToolId } from '../../../shared/layout'
+import { ROLE_DEFS } from '../../../shared/layout'
 import { listWidgetInstances, updateWidgetInstance } from '../utils/widget-edit'
 import { WIDGET_REGISTRY } from '../../../shared/widgets'
 
 /** 工具勾选选项（与主进程 ai.ts 的 buildTools 一一对应） */
 const TOOL_OPTIONS: { id: ToolId; label: string; hint?: string }[] = [
   { id: 'getCurrentTime', label: '当前时间' },
-  { id: 'webSearch', label: '联网搜索', hint: '需在设置中配置 Tavily Key' },
+  { id: 'webSearch', label: '联网搜索', hint: '需配置 Tavily Key' },
   { id: 'fetchPage', label: '网页抓取' }
 ]
 
-/** 内窑形式选项（image/text-image 已移除：无生图服务，占位无意义） */
-const KIND_OPTIONS: { text: string; value: BlockKind }[] = [
+/** 内容形式选项 */
+const KIND_OPTIONS: { text: string; value: SlotKind }[] = [
   { text: '纯文字', value: 'text' },
   { text: '表格', value: 'table' }
+]
+
+/** 宽度模式选项 */
+const WIDTH_OPTIONS: { text: string; value: 'full' | 'half-left' | 'half-right' | 'sidebar' }[] = [
+  { text: '全宽', value: 'full' },
+  { text: '左半栏', value: 'half-left' },
+  { text: '右半栏', value: 'half-right' },
+  { text: '右侧栏', value: 'sidebar' }
 ]
 
 const useStyles = makeStyles({
@@ -38,7 +47,9 @@ const useStyles = makeStyles({
     width: '280px',
     padding: '16px',
     backgroundColor: tokens.colorNeutralBackground2,
-    borderLeft: `1px solid ${tokens.colorNeutralStroke2}`,
+    borderLeftWidth: '1px',
+    borderLeftStyle: 'solid',
+    borderLeftColor: tokens.colorNeutralStroke2,
     flexShrink: 0
   },
   title: {
@@ -50,7 +61,6 @@ const useStyles = makeStyles({
   hint: { fontSize: tokens.fontSizeBase200, color: tokens.colorNeutralForeground3 },
   fieldGap: { marginBottom: '4px' },
   promptArea: { minHeight: '120px' },
-  sizeRow: { display: 'flex', gap: '8px' },
   deleteBtn: {
     marginTop: '12px',
     color: tokens.colorPaletteRedForeground1
@@ -58,42 +68,81 @@ const useStyles = makeStyles({
 })
 
 interface PropertiesPanelProps {
-  block: Block | null
-  onChange: (patch: Partial<Block>) => void
+  slot: Slot | null
+  onChange: (patch: Partial<Slot>) => void
+  onSetWidth: (widthMode: 'full' | 'half-left' | 'half-right' | 'sidebar') => void
   onRemove: () => void
 }
 
-/** 右侧属性面板：编辑选中区块的提示词、形式、尺寸 */
-function PropertiesPanel({ block, onChange, onRemove }: PropertiesPanelProps): JSX.Element {
+/** 右侧属性面板：编辑选中槽位的角色、提示词、宽度、形式、工具 */
+function PropertiesPanel({ slot, onChange, onSetWidth, onRemove }: PropertiesPanelProps): React.JSX.Element {
   const styles = useStyles()
 
-  if (!block) {
+  if (!slot) {
     return (
       <aside className={styles.panel}>
         <h2 className={styles.title}>属性</h2>
-        <p className={styles.hint}>选中内容块后在此编辑提示词与样式</p>
+        <p className={styles.hint}>选中槽位后在此编辑提示词与工具</p>
       </aside>
     )
   }
 
+  // 从当前宽度反推宽度模式（用于显示）
+  const widthMode =
+    slot.region.width > 150
+      ? 'full'
+      : slot.region.width > 80
+        ? slot.region.x < 60
+          ? 'half-left'
+          : 'half-right'
+        : 'sidebar'
+
   return (
     <aside className={styles.panel}>
-      <h2 className={styles.title}>区块属性</h2>
+      <h2 className={styles.title}>槽位属性</h2>
 
-      <Field label="提示词（想让 AI 填什么）" className={styles.fieldGap}>
+      <Field label="槽位角色（决定 AI 的职责）" className={styles.fieldGap}>
+        <Dropdown
+          value={ROLE_DEFS[slot.role].name}
+          selectedOptions={[slot.role]}
+          onOptionSelect={(_, data) => onChange({ role: data.optionValue as SlotRole })}
+        >
+          {Object.entries(ROLE_DEFS).map(([value, def]) => (
+            <Option key={value} value={value} text={def.name}>
+              {def.name}
+            </Option>
+          ))}
+        </Dropdown>
+      </Field>
+
+      <Field label="提示词（这一格要什么）" className={styles.fieldGap}>
         <Textarea
           className={styles.promptArea}
           placeholder="例：总结今日头条科技新闻，200 字以内"
-          value={block.prompt}
+          value={slot.prompt}
           onChange={(_, data) => onChange({ prompt: data.value })}
         />
       </Field>
 
+      <Field label="宽度（版式自动重排）" className={styles.fieldGap}>
+        <Dropdown
+          value={WIDTH_OPTIONS.find((w) => w.value === widthMode)?.text ?? '全宽'}
+          selectedOptions={[widthMode]}
+          onOptionSelect={(_, data) => onSetWidth(data.optionValue as 'full' | 'half-left' | 'half-right' | 'sidebar')}
+        >
+          {WIDTH_OPTIONS.map((w) => (
+            <Option key={w.value} value={w.value}>
+              {w.text}
+            </Option>
+          ))}
+        </Dropdown>
+      </Field>
+
       <Field label="内容形式" className={styles.fieldGap}>
         <Dropdown
-          value={KIND_OPTIONS.find((k) => k.value === block.kind)?.text ?? '纯文字'}
-          selectedOptions={[block.kind]}
-          onOptionSelect={(_, data) => onChange({ kind: data.optionValue as BlockKind })}
+          value={KIND_OPTIONS.find((k) => k.value === slot.kind)?.text ?? '纯文字'}
+          selectedOptions={[slot.kind]}
+          onOptionSelect={(_, data) => onChange({ kind: data.optionValue as SlotKind })}
         >
           {KIND_OPTIONS.map((k) => (
             <Option key={k.value} value={k.value}>
@@ -108,9 +157,9 @@ function PropertiesPanel({ block, onChange, onRemove }: PropertiesPanelProps): J
           <Checkbox
             key={id}
             label={hint ? `${label}（${hint}）` : label}
-            checked={(block.tools ?? []).includes(id)}
+            checked={(slot.tools ?? []).includes(id)}
             onChange={(_, data) => {
-              const current = block.tools ?? []
+              const current = slot.tools ?? []
               const next = data.checked ? [...current, id] : current.filter((t) => t !== id)
               onChange({ tools: next })
             }}
@@ -118,32 +167,7 @@ function PropertiesPanel({ block, onChange, onRemove }: PropertiesPanelProps): J
         ))}
       </Field>
 
-      <WidgetEditor block={block} onChange={onChange} />
-
-      <Field label="尺寸（mm）" className={styles.fieldGap}>
-        <div className={styles.sizeRow}>
-          <SpinButton
-            value={Math.round(block.width)}
-            min={15}
-            max={210}
-            step={1}
-            contentAfter="宽"
-            onChange={(_, data) => {
-              if (data.value !== undefined) onChange({ width: Number(data.value) })
-            }}
-          />
-          <SpinButton
-            value={Math.round(block.height)}
-            min={15}
-            max={297}
-            step={1}
-            contentAfter="高"
-            onChange={(_, data) => {
-              if (data.value !== undefined) onChange({ height: Number(data.value) })
-            }}
-          />
-        </div>
-      </Field>
+      <WidgetEditor slot={slot} onChange={onChange} />
 
       <Button
         className={styles.deleteBtn}
@@ -151,7 +175,7 @@ function PropertiesPanel({ block, onChange, onRemove }: PropertiesPanelProps): J
         appearance="subtle"
         onClick={onRemove}
       >
-        删除此区块（Delete）
+        删除此槽位（Delete）
       </Button>
     </aside>
   )
@@ -159,14 +183,15 @@ function PropertiesPanel({ block, onChange, onRemove }: PropertiesPanelProps): J
 
 /** 控件实例编辑区：列出内容中的控件，展开即表单化改参（用户参与的核心入口） */
 function WidgetEditor({
-  block,
+  slot,
   onChange
 }: {
-  block: Block
-  onChange: (patch: Partial<Block>) => void
-}): JSX.Element | null {
-  const [openLine, setOpenLine] = useState<number | null>(null)
-  const content = block.content ?? ''
+  slot: Slot
+  onChange: (patch: Partial<Slot>) => void
+}): React.JSX.Element | null {
+  const styles = useStyles()
+  const [openLine, setOpenLine] = useState<number[]>([])
+  const content = slot.content ?? ''
   const instances = listWidgetInstances(content)
   if (instances.length === 0) return null
 
@@ -176,7 +201,7 @@ function WidgetEditor({
 
   return (
     <Field label={`控件实例（${instances.length}）`} className={styles.fieldGap}>
-      <Accordion openItems={openLine} onToggle={(_, d) => setOpenLine(d.openItems as number)}>
+      <Accordion openItems={openLine} onToggle={(_, d) => setOpenLine(d.openItems as number[])}>
         {instances.map(({ lineIndex, id, params }) => {
           const def = WIDGET_REGISTRY[id]
           return (

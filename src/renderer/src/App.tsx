@@ -1,3 +1,4 @@
+import type * as React from 'react'
 import { useEffect, useState, useCallback } from 'react'
 import {
   FluentProvider,
@@ -40,21 +41,22 @@ import StatusBar from './components/StatusBar'
 import SettingsDialog from './components/SettingsDialog'
 import { useLayout } from './hooks/useLayout'
 import type { AiSettings, ThemeMode } from '../../shared/settings'
-import type { Block, LayoutDoc } from '../../shared/layout'
+import type { LayoutDoc, Slot, SlotRole } from '../../shared/layout'
+import { ROLE_DEFS } from '../../shared/layout'
 import { PRESETS, buildDocFromPreset } from '../../shared/presets'
-import { toPresetBlocks, fromPresetBlocks, type UserPreset } from '../../shared/user-preset'
+import { toPresetSlots, fromPresetSlots, type UserPreset } from '../../shared/user-preset'
 
 declare global {
   interface Window {
     briefy?: {
       getSettings(): Promise<AiSettings>
       saveSettings(settings: AiSettings): Promise<void>
-      generateBlock(
+      generateSlot(
         prompt: string,
         kind: string,
         tools: string[],
         docContext: unknown,
-        blockIndex: number
+        slotIndex: number
       ): Promise<{ content: string }>
       saveDoc(doc: LayoutDoc): Promise<string | null>
       openDoc(): Promise<LayoutDoc | null>
@@ -117,11 +119,14 @@ const useStyles = makeStyles({
 /** 打印/导出模式：URL 带 ?print=1 时为 true，只渲染纯净版面 */
 const PRINT_MODE = new URLSearchParams(window.location.search).has('print')
 
-function App(): JSX.Element {
+/** 打印视图中的槽位内容渲染（纯文本流，无需控件交互） */
+function SlotContentRender({ slot }: { slot: Slot }): React.JSX.Element {
+  return <div className="print-slot">{slot.content ?? ''}</div>
+}
+
+function App(): React.JSX.Element {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settings, setSettings] = useState<AiSettings | null>(null)
-  // "添加内容"框选模式
-  const [drawing, setDrawing] = useState(false)
 
   const layout = useLayout()
   const styles = useStyles()
@@ -144,11 +149,11 @@ function App(): JSX.Element {
     }
   }
 
-  // Delete 键删除选中区块
+  // Delete 键删除选中槽位
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent): void => {
       if (e.key !== 'Delete' || !layout.selection) return
-      layout.removeBlock(layout.selection.page.id, layout.selection.block.id)
+      layout.removeSlot(layout.selection.page.id, layout.selection.slot.id)
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
@@ -156,28 +161,28 @@ function App(): JSX.Element {
 
   const hasApiKey = Boolean(settings?.apiKey)
 
-  /** 并发生成所有区块（并发上限 3），逐块回填；附带文档大纲供 AI 语篇决策 */
+  /** 并发生成所有槽位（并发上限 3），逐槽回填；附带文档大纲供 AI 语篇决策 */
   const [generating, setGenerating] = useState(false)
   const generateAll = async (): Promise<void> => {
     if (!window.briefy || generating) return
     setGenerating(true)
     try {
-      const tasks: { pageId: string; block: Block; index: number }[] = []
+      const tasks: { pageId: string; slot: Slot; index: number }[] = []
       let index = 0
       for (const page of layout.doc.pages) {
-        for (const block of page.blocks) {
-          if (!block.prompt.trim()) continue // 无提示词的区块跳过
-          tasks.push({ pageId: page.id, block, index })
+        for (const slot of page.slots) {
+          if (!slot.prompt.trim()) continue // 无提示词的槽位跳过
+          tasks.push({ pageId: page.id, slot, index })
           index++
         }
       }
-      // 语篇上下文：整份报纸的区块大纲（页码+版面方位）
+      // 语篇上下文：整份报纸的槽位大纲（角色+职责）
       const docContext = {
         title: layout.doc.title,
         outline: layout.doc.pages.flatMap((page, pi) =>
-          page.blocks.map((b) => ({
-            position: `第${pi + 1}页·${b.y < 140 ? (b.x < 105 ? '左上' : '右上') : b.x < 105 ? '左下' : '右下'}`,
-            prompt: b.prompt
+          page.slots.map((s) => ({
+            position: `第${pi + 1}页·${ROLE_DEFS[s.role].name}`,
+            prompt: s.prompt
           }))
         )
       }
@@ -187,18 +192,18 @@ function App(): JSX.Element {
       const worker = async (): Promise<void> => {
         while (cursor < tasks.length) {
           const task = tasks[cursor++]
-          layout.updateBlock(task.pageId, task.block.id, { status: 'generating' })
+          layout.updateSlot(task.pageId, task.slot.id, { status: 'generating' })
           try {
-            const { content } = await window.briefy!.generateBlock(
-              task.block.prompt,
-              task.block.kind,
-              task.block.tools ?? ['getCurrentTime'],
+            const { content } = await window.briefy!.generateSlot(
+              task.slot.prompt,
+              task.slot.kind,
+              task.slot.tools ?? ['getCurrentTime'],
               docContext,
               task.index
             )
-            layout.updateBlock(task.pageId, task.block.id, { content, status: 'done' })
+            layout.updateSlot(task.pageId, task.slot.id, { content, status: 'done' })
           } catch (err) {
-            layout.updateBlock(task.pageId, task.block.id, {
+            layout.updateSlot(task.pageId, task.slot.id, {
               content: err instanceof Error ? err.message : String(err),
               status: 'error'
             })
@@ -253,10 +258,10 @@ function App(): JSX.Element {
     const name = window.prompt('给这个预设起个名字：')
     if (!name?.trim()) return
     const preset: UserPreset = {
-      version: 1,
+      version: 2,
       name: name.trim(),
       savedAt: new Date().toISOString(),
-      pages: layout.doc.pages.map((p) => ({ blocks: toPresetBlocks(p.blocks) }))
+      pages: layout.doc.pages.map((p) => ({ slots: toPresetSlots(p.slots) }))
     }
     const result = await window.briefy.saveUserPreset(preset)
     if (result === 'saved') void refreshUserPresets()
@@ -266,9 +271,9 @@ function App(): JSX.Element {
   /** 套用用户预设 */
   const applyUserPreset = (preset: UserPreset): void => {
     layout.loadDoc({
-      version: 1,
+      version: 2,
       title: preset.name,
-      pages: preset.pages.map((p) => ({ id: crypto.randomUUID(), blocks: fromPresetBlocks(p.blocks) }))
+      pages: preset.pages.map((p) => ({ id: crypto.randomUUID(), slots: fromPresetSlots(p.slots) }))
     })
   }
 
@@ -300,19 +305,14 @@ function App(): JSX.Element {
     return (
       <FluentProvider theme={webLightTheme}>
         <div className="print-view">
-          {layout.doc.pages.map((page) =>
-            page.blocks.map((block) => (
+          {layout.doc.pages.flatMap((page) =>
+            page.slots.map((slot) => (
               <div
-                key={block.id}
+                key={slot.id}
                 className="print-block"
-                style={{
-                  left: `${(block.x / 210) * 100}%`,
-                  top: `${(block.y / 297) * 100}%`,
-                  width: `${(block.width / 210) * 100}%`,
-                  height: `${(block.height / 297) * 100}%`
-                }}
+                style={{ left: 0, width: '100%' }}
               >
-                {block.content}
+                <SlotContentRender slot={slot} />
               </div>
             ))
           )}
@@ -347,15 +347,25 @@ function App(): JSX.Element {
               </MenuList>
             </MenuPopover>
           </Menu>
-          <Tooltip content="在页面上框选一块内容区域" relationship="description">
-            <ToolbarButton
-              icon={<AddSquareRegular />}
-              appearance={drawing ? 'primary' : undefined}
-              onClick={() => setDrawing(!drawing)}
-            >
-              {drawing ? '点击页面框选…' : '添加内容'}
-            </ToolbarButton>
-          </Tooltip>
+          <Menu>
+            <MenuTrigger disableButtonEnhancement>
+              <ToolbarButton icon={<AddSquareRegular />}>添加槽位</ToolbarButton>
+            </MenuTrigger>
+            <MenuPopover>
+              <MenuList>
+                {(Object.keys(ROLE_DEFS) as SlotRole[])
+                  .filter((r) => r !== 'custom')
+                  .map((role) => (
+                    <MenuItem
+                      key={role}
+                      onClick={() => layout.addSlot(layout.currentPageId, role, 'full')}
+                    >
+                      {ROLE_DEFS[role].name}
+                    </MenuItem>
+                  ))}
+              </MenuList>
+            </MenuPopover>
+          </Menu>
           <Menu>
             <MenuTrigger disableButtonEnhancement>
               <ToolbarButton icon={<AppsRegular />}>预设</ToolbarButton>
@@ -463,26 +473,26 @@ function App(): JSX.Element {
                 <PageView
                   key={page.id}
                   page={page}
-                  selectedBlockId={layout.selectedBlockId}
-                  drawRect={drawing ? (rect) => {
-                    layout.addBlock(page.id, rect.x, rect.y, rect.width, rect.height)
-                    setDrawing(false)
-                  } : undefined}
-                  onSelectBlock={layout.selectBlock}
-                  onChangeBlock={(blockId, patch) => layout.updateBlock(page.id, blockId, patch)}
+                  selectedSlotId={layout.selectedSlotId}
+                  onSelectSlot={layout.selectSlot}
                 />
               ))}
           </div>
           <PropertiesPanel
-            block={layout.selection?.block ?? null}
+            slot={layout.selection?.slot ?? null}
             onChange={(patch) => {
               if (layout.selection) {
-                layout.updateBlock(layout.selection.page.id, layout.selection.block.id, patch)
+                layout.updateSlot(layout.selection.page.id, layout.selection.slot.id, patch)
+              }
+            }}
+            onSetWidth={(widthMode) => {
+              if (layout.selection) {
+                layout.setSlotWidth(layout.selection.page.id, layout.selection.slot.id, widthMode)
               }
             }}
             onRemove={() => {
               if (layout.selection) {
-                layout.removeBlock(layout.selection.page.id, layout.selection.block.id)
+                layout.removeSlot(layout.selection.page.id, layout.selection.slot.id)
               }
             }}
           />
@@ -496,7 +506,7 @@ function App(): JSX.Element {
           onRemove={layout.removePage}
         />
 
-        <StatusBar version="0.7.0" hasApiKey={hasApiKey} />
+        <StatusBar version="0.8.0" hasApiKey={hasApiKey} />
 
         <SettingsDialog
           open={settingsOpen}

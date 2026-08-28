@@ -2,6 +2,22 @@
 
 本项目的所有显著变更记录于此。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [0.8.0] - 2026-08-28
+
+### 重构（架构 v2 第四阶段：槽位化版式，推翻 Block 体系）
+
+- **Slot 取代 Block**：版面 = 槽位声明表；槽位有角色（headline 头条 / body 正文 / stats 数据 / briefs 快讯 / notice 提示框 / custom 自定义），AI 按角色领任务（ROLE_DEFS 职责单一事实源）；
+- **流式排布**：用户不再手绘矩形——"添加槽位"选角色即可，同列槽位自动纵向排布（flowSlots），一键切宽度（全宽/左右半栏/右侧栏）自动重排；
+- **自动分页**：槽位累计高度超页时自动搬到新页（paginate）；
+- **高度自适应一等公民**：CSS 文档流自然撑开（v0.6.0 的 JS 测量方案随 Block 废弃）；
+- **兼容迁移**：旧 v1 `.briefy`（blocks）与用户预设打开时自动迁移为 v2 槽位，写回始终 v2；
+- 全部既有能力保留复用：控件协议、区块级工具、语篇大纲注入（升级为角色职责版）、用户自定义预设、PDF 导出。
+
+### 修复
+
+- SettingsDialog 相对路径错误（两层应为三层）；
+- tsc 严格模式暴露的 CSS side-effect import 声明缺失（新增 css.d.ts）。
+
 ## [0.7.0] - 2026-08-28
 
 ### 新增（架构 v2 第五阶段：用户自定义预设）

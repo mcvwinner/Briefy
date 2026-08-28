@@ -1,3 +1,4 @@
+import type * as React from 'react'
 import { useEffect, useState } from 'react'
 import {
   Button,
@@ -12,7 +13,7 @@ import {
   Input,
   makeStyles
 } from '@fluentui/react-components'
-import type { AiSettings } from '../../shared/settings'
+import type { AiSettings } from '../../../shared/settings'
 
 const useStyles = makeStyles({
   apiKeyInput: { width: '100%' },
@@ -28,7 +29,7 @@ interface SettingsDialogProps {
 }
 
 /** AI 服务设置弹窗：API Key / Base URL / 模型名 */
-function SettingsDialog({ open, settings, onClose, onSaved }: SettingsDialogProps): JSX.Element | null {
+function SettingsDialog({ open, settings, onClose, onSaved }: SettingsDialogProps): React.JSX.Element | null {
   const styles = useStyles()
   const [apiKey, setApiKey] = useState('')
   const [baseUrl, setBaseUrl] = useState('')

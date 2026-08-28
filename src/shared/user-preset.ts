@@ -1,28 +1,23 @@
-import type { Block } from './layout'
+import type { Slot, SlotStatus } from './layout'
 
 /**
- * 用户自定义预设（v1）：
- * 保存版面结构 + 提示词 + 工具配置，剥离生成内容（content/status）防隐私泄漏。
+ * 用户自定义预设（v2，槽位化）：
+ * 保存槽位版面 + 提示词 + 工具配置，剥离生成内容（content/status）防隐私泄漏。
  */
 export interface UserPreset {
-  version: 1
+  version: 2
   name: string
   /** 保存时间（ISO） */
   savedAt: string
-  pages: { blocks: Omit<Block, 'content' | 'status'>[] }[]
+  pages: { slots: Omit<Slot, 'content' | 'status' | 'overflow'>[] }[]
 }
 
-/** 从区块剥离内容，得到可保存的预设区块 */
-export function toPresetBlocks(blocks: Block[]): UserPreset['pages'][number]['blocks'] {
-  return blocks.map(({ content: _content, status: _status, ...rest }) => rest)
+/** 从槽位剥离内容，得到可保存的预设槽位 */
+export function toPresetSlots(slots: Slot[]): UserPreset['pages'][number]['slots'] {
+  return slots.map(({ content: _c, status: _s, overflow: _o, ...rest }) => rest)
 }
 
-/** 从预设区块还原为可编辑区块（恢复默认状态） */
-export function fromPresetBlocks(
-  presetBlocks: UserPreset['pages'][number]['blocks']
-): Block[] {
-  return presetBlocks.map((b) => ({
-    ...b,
-    status: 'empty' as const
-  }))
+/** 从预设槽位还原为可编辑槽位（恢复默认状态） */
+export function fromPresetSlots(presetSlots: UserPreset['pages'][number]['slots']): Slot[] {
+  return presetSlots.map((s) => ({ ...s, status: 'empty' as SlotStatus }))
 }

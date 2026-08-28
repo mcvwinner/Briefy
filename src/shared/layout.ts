@@ -1,60 +1,61 @@
 import type { AiSettings } from './settings'
 
-/** 区块槽位角色（P4 槽位化：给坐标赋予语义，AI 按角色理解职责） */
-export type BlockRole = 'headline' | 'stats' | 'body' | 'briefs' | 'custom'
+/**
+ * 槽位化数据模型（v2）——Block 体系的替代者。
+ * 版面 = 槽位声明表；槽位有角色职责，高度自适应，AI 按角色领任务。
+ */
 
-/** 各角色的职责描述（喂给 AI）与默认布局特征 */
-export const ROLE_DEFS: Record<BlockRole, { name: string; duty: string }> = {
+/** 区块槽位角色：AI 按角色理解职责 */
+export type SlotRole = 'headline' | 'body' | 'stats' | 'briefs' | 'notice' | 'custom'
+
+/** 各角色的职责描述（喂给 AI 的单一事实源） */
+export const ROLE_DEFS: Record<SlotRole, { name: string; duty: string }> = {
   headline: { name: '头条', duty: '全宽镇版头条：写最有分量的导语，克制而有力，不要细节堆砌。' },
-  stats: { name: '数据', duty: '数据窗口：优先用 :::stat 统计卡呈现 2-3 个关键数字，少写散文。' },
   body: { name: '正文', duty: '深度正文：可用 ## 小标题分段展开，与头条内容承接但不重复。' },
+  stats: { name: '数据', duty: '数据窗口：优先用 :::stat 统计卡呈现 2-3 个关键数字，少写散文。' },
   briefs: { name: '快讯', duty: '快讯栏：每条一句话，用 **日期/主体** 开头，短促密集。' },
+  notice: { name: '提示框', duty: '整格提示/声明：适合 :::info 控件，语气单一明确。' },
   custom: { name: '自定义', duty: '' }
 }
 
-/** 区块内容形式（text-image/image 需生图服务，已按用户要求移除） */
-export type BlockKind = 'text' | 'table'
+/** 槽位内容形式 */
+export type SlotKind = 'text' | 'table'
 
 /** 内容生成状态 */
-export type BlockStatus = 'empty' | 'generating' | 'done' | 'error'
+export type SlotStatus = 'empty' | 'generating' | 'done' | 'error'
 
 /** 本轮内置的 AI 工具标识 */
 export type ToolId = 'getCurrentTime' | 'webSearch' | 'fetchPage'
 
-/** 文档级语篇上下文：让 AI 知道整份报纸的结构与自己的位置 */
-export interface DocContext {
-  title: string
-  /** 各区块摘要，按版面顺序：[{ position: "第1页·左上", prompt: "科技头条" }] */
-  outline: { position: string; prompt: string }[]
-}
-
-/** 页面上的一个内容区块（坐标单位 mm） */
-export interface Block {
+/** 槽位：版面上一个有职责的区域 */
+export interface Slot {
   id: string
-  /** 相对页面左上角的位置（mm） */
-  x: number
-  y: number
-  width: number
-  height: number
-  /** 用户输入的生成提示词 */
+  role: SlotRole
+  /** 版面位置（mm）。宽度参与版式推导，高度仅作预估（内容自适应） */
+  region: { x: number; y: number; width: number }
+  /** 预估高度（mm），用于流式排布与分页计算；内容溢出时生成后写回 overflow */
+  estHeight: number
+  kind: SlotKind
+  /** 槽位级提示词：这一格"要什么" */
   prompt: string
-  kind: BlockKind
-  /** 允许此区块使用的 AI 工具 */
+  /** 允许此槽位使用的 AI 工具 */
   tools: ToolId[]
-  status: BlockStatus
-  /** AI 填充的内容（Markdown 或纯文本） */
+  /** AI 产出：控件协议文本 */
   content?: string
+  status: SlotStatus
+  /** AI 内容超出预估高度的延展量（mm），生成后写回 */
+  overflow?: number
 }
 
-/** 一页 A4 */
+/** 一页 A4：槽位声明表 */
 export interface Page {
   id: string
-  blocks: Block[]
+  slots: Slot[]
 }
 
-/** 设计文档（保存即 .briefy 文件内容） */
+/** 设计文档 v2（保存即 .briefy 文件内容） */
 export interface LayoutDoc {
-  version: 1
+  version: 2
   title: string
   pages: Page[]
 }
@@ -65,24 +66,162 @@ export interface BriefyDoc {
   layout: LayoutDoc
 }
 
+// ---------- 工厂 ----------
+
 export function createEmptyPage(): Page {
-  return { id: crypto.randomUUID(), blocks: [] }
+  return { id: crypto.randomUUID(), slots: [] }
 }
 
 export function createEmptyDoc(): LayoutDoc {
-  return { version: 1, title: '未命名报纸', pages: [createEmptyPage()] }
+  return { version: 2, title: '未命名报纸', pages: [createEmptyPage()] }
 }
 
-export function createBlock(x: number, y: number, width: number, height: number): Block {
+export function createSlot(role: SlotRole, region: Slot['region'], estHeight: number): Slot {
   return {
     id: crypto.randomUUID(),
-    x,
-    y,
-    width,
-    height,
-    prompt: '',
+    role,
+    region,
+    estHeight,
     kind: 'text',
+    prompt: '',
     tools: ['getCurrentTime'],
     status: 'empty'
   }
+}
+
+// ---------- 版式规则：区域推导 ----------
+
+/** A4 页边距与内容宽度 */
+export const MARGIN_MM = 15
+export const CONTENT_WIDTH_MM = 210 - MARGIN_MM * 2 // 180
+export const PAGE_HEIGHT_MM = 297
+export const SLOT_GAP_MM = 8
+
+/** 槽位宽度类型（用户一键切换） */
+export type WidthMode = 'full' | 'half-left' | 'half-right' | 'sidebar'
+
+/** 由宽度模式推导 region.x / region.width */
+export function regionFor(widthMode: WidthMode): { x: number; width: number } {
+  switch (widthMode) {
+    case 'half-left':
+      return { x: MARGIN_MM, width: CONTENT_WIDTH_MM / 2 - 4 }
+    case 'half-right':
+      return { x: MARGIN_MM + CONTENT_WIDTH_MM / 2 + 4, width: CONTENT_WIDTH_MM / 2 - 4 }
+    case 'sidebar':
+      return { x: 210 - MARGIN_MM - 55, width: 55 }
+    case 'full':
+    default:
+      return { x: MARGIN_MM, width: CONTENT_WIDTH_MM }
+  }
+}
+
+/** 各角色的默认预估高度（mm） */
+export const DEFAULT_SLOT_HEIGHT: Record<SlotRole, number> = {
+  headline: 45,
+  body: 90,
+  stats: 35,
+  briefs: 60,
+  notice: 25,
+  custom: 45
+}
+
+/**
+ * 把槽位按列分组并纵向流式排布：同列的下一个槽位 y = 上一个 y + 实际高度 + 间距。
+ * 返回更新后的槽位数组（原数组不修改）。
+ */
+export function flowSlots(slots: Slot[]): Slot[] {
+  const columnTails = new Map<number, number>() // 列标识 → 底部 y
+  const columnKey = (s: Slot): number => Math.round(s.region.x / 10) // 10mm 精度同列
+  return slots.map((slot) => {
+    const key = columnKey(slot)
+    const prevTail = columnTails.get(key)
+    const y = prevTail !== undefined ? prevTail + SLOT_GAP_MM : MARGIN_MM
+    const bottom = y + slot.estHeight + (slot.overflow ?? 0)
+    columnTails.set(key, bottom)
+    return { ...slot, region: { ...slot.region, y } }
+  })
+}
+
+/**
+ * 自动分页：把 y + 高度超出页面可容纳范围的槽位搬到新页。
+ * 返回切分后的页面数组。
+ */
+export function paginate(pages: Page[]): Page[] {
+  const result: Page[] = []
+  for (const page of pages) {
+    const kept: Slot[] = []
+    const overflow: Slot[] = []
+    let cursorY = MARGIN_MM
+    for (const slot of page.slots) {
+      const h = slot.estHeight + (slot.overflow ?? 0)
+      if (cursorY + h <= PAGE_HEIGHT_MM - MARGIN_MM || kept.length === 0) {
+        kept.push(slot)
+        cursorY = slot.region.y + h
+      } else {
+        overflow.push(slot)
+      }
+    }
+    result.push({ ...page, slots: kept })
+    if (overflow.length > 0) {
+      result.push({ id: crypto.randomUUID(), slots: flowSlots(overflow) })
+    }
+  }
+  return result
+}
+
+// ---------- 旧格式迁移 ----------
+
+/** 旧版 Block（v1）最小结构 */
+interface LegacyBlock {
+  id?: string
+  x?: number
+  y?: number
+  width?: number
+  height?: number
+  prompt?: string
+  kind?: string
+  tools?: string[]
+}
+
+/** 从旧版 .briefy（v1 blocks）迁移为 v2 Slot */
+function migrateBlock(b: LegacyBlock): Slot {
+  const height = typeof b.height === 'number' ? b.height : 45
+  return {
+    id: b.id ?? crypto.randomUUID(),
+    role: 'custom',
+    region: {
+      x: typeof b.x === 'number' ? b.x : MARGIN_MM,
+      y: typeof b.y === 'number' ? b.y : MARGIN_MM,
+      width: typeof b.width === 'number' ? b.width : CONTENT_WIDTH_MM
+    },
+    estHeight: height,
+    kind: b.kind === 'table' ? 'table' : 'text',
+    prompt: typeof b.prompt === 'string' ? b.prompt : '',
+    tools: Array.isArray(b.tools) ? (b.tools.filter((t) => t !== 'readReference') as ToolId[]) : ['getCurrentTime'],
+    status: 'empty'
+  }
+}
+
+/** 解析 .briefy 文件内容：v2 直读，v1 迁移 */
+export function parseLayoutDoc(raw: string): LayoutDoc {
+  const data: unknown = JSON.parse(raw)
+  if (!data || typeof data !== 'object') throw new Error('不是有效的 Briefy 设计文件')
+  const doc = data as { version?: number; title?: string; pages?: unknown[] }
+  if (!Array.isArray(doc.pages)) throw new Error('设计文件缺少页面数据')
+
+  if (doc.version === 2) {
+    return { version: 2, title: doc.title ?? '未命名报纸', pages: doc.pages as Page[] }
+  }
+  if (doc.version === 1) {
+    // v1: pages[].blocks[] → v2: pages[].slots[]
+    return {
+      version: 2,
+      title: doc.title ?? '未命名报纸',
+      pages: (doc.pages as { blocks?: LegacyBlock[] }[]).map((p) => ({
+        id: crypto.randomUUID(),
+        slots: Array.isArray(p.blocks) ? p.blocks.map(migrateBlock) : []
+      }))
+    }
+  }
+  throw new Error('设计文件版本不受支持')
 }

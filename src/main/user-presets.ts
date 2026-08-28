@@ -1,4 +1,4 @@
-import { app, dialog, ipcMain } from 'electron'
+import { BrowserWindow, app, dialog, ipcMain } from 'electron'
 import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { UserPreset } from '../shared/user-preset'
@@ -23,8 +23,7 @@ export function registerUserPresetIpc(): void {
         try {
           const raw = await readFile(join(presetsPath(), file), 'utf-8')
           const data = JSON.parse(raw) as UserPreset
-          if (data.version === 1 && data.name) presets.push(data)
-        } catch {
+          if (data.version === 2 && data.name) presets.push(data)        } catch {
           // 单个文件损坏不影响其余
         }
       }
@@ -118,7 +117,7 @@ export function registerUserPresetIpc(): void {
     try {
       const raw = await readFile(result.filePaths[0], 'utf-8')
       const preset = JSON.parse(raw) as UserPreset
-      if (preset.version !== 1 || !preset.name) return null
+      if (preset.version !== 2 || !preset.name) return null
       await mkdir(presetsPath(), { recursive: true })
       await writeFile(join(presetsPath(), fileName(preset.name)), JSON.stringify(preset, null, 2), 'utf-8')
       return preset

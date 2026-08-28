@@ -1,3 +1,4 @@
+import type * as React from 'react'
 import { makeStyles, Text, tokens } from '@fluentui/react-components'
 import {
   CheckmarkCircleRegular,
@@ -26,7 +27,7 @@ interface StatusBarProps {
 }
 
 /** Fluent 风格状态栏：浅灰底 + 语义色状态图标（Office 同款布局语言） */
-function StatusBar({ version, hasApiKey }: StatusBarProps): JSX.Element {
+function StatusBar({ version, hasApiKey }: StatusBarProps): React.JSX.Element {
   const styles = useStyles()
   return (
     <footer className={styles.bar}>

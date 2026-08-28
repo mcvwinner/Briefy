@@ -1,3 +1,4 @@
+import type * as React from 'react'
 import { makeStyles, Text, tokens, Tooltip } from '@fluentui/react-components'
 import { DocumentRegular, DeleteRegular, AddRegular } from '@fluentui/react-icons'
 import type { Page } from '../../../shared/layout'
@@ -9,7 +10,9 @@ const useStyles = makeStyles({
     gap: '6px',
     padding: '4px 12px',
     backgroundColor: tokens.colorNeutralBackground2,
-    borderTop: `1px solid ${tokens.colorNeutralStroke2}`
+    borderTopWidth: '1px',
+    borderTopStyle: 'solid',
+    borderTopColor: tokens.colorNeutralStroke2
   },
   tab: {
     display: 'flex',
@@ -17,28 +20,12 @@ const useStyles = makeStyles({
     gap: '6px',
     padding: '4px 10px',
     borderRadius: tokens.borderRadiusMedium,
-    borderTopWidth: '1px',
-    borderBottomWidth: '1px',
-    borderLeftWidth: '1px',
-    borderRightWidth: '1px',
-    borderTopStyle: 'solid',
-    borderBottomStyle: 'solid',
-    borderLeftStyle: 'solid',
-    borderRightStyle: 'solid',
-    borderTopColor: 'transparent',
-    borderBottomColor: 'transparent',
-    borderLeftColor: 'transparent',
-    borderRightColor: 'transparent',
     background: 'transparent',
     cursor: 'pointer',
     fontSize: tokens.fontSizeBase300
   },
   tabActive: {
     backgroundColor: tokens.colorNeutralBackground1,
-    borderTopColor: tokens.colorNeutralStroke1,
-    borderBottomColor: tokens.colorNeutralStroke1,
-    borderLeftColor: tokens.colorNeutralStroke1,
-    borderRightColor: tokens.colorNeutralStroke1,
     fontWeight: tokens.fontWeightSemibold
   },
   iconBtn: {
@@ -62,7 +49,7 @@ interface PageTabsProps {
 }
 
 /** 底部页签栏：Word 式多页管理 */
-function PageTabs({ pages, currentPageId, onSelect, onAdd, onRemove }: PageTabsProps): JSX.Element {
+function PageTabs({ pages, currentPageId, onSelect, onAdd, onRemove }: PageTabsProps): React.JSX.Element {
   const styles = useStyles()
   return (
     <div className={styles.bar}>
@@ -84,7 +71,7 @@ function PageTabs({ pages, currentPageId, onSelect, onAdd, onRemove }: PageTabsP
                 onRemove(page.id)
               }}
             >
-              <DeleteRegular style={{ fontSize: 12 }} />
+              <DeleteRegular fontSize={12} />
             </span>
           )}
         </button>

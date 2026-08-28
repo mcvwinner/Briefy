@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import type * as React from 'react'
+import type { ReactNode } from 'react'
 import { makeStyles, tokens } from '@fluentui/react-components'
-import type { Block, Page } from '../../../shared/layout'
-import { mmToPx } from '../utils/units'
+import type { Page, Slot } from '../../../shared/layout'
 import { renderInlineMarkdown } from '../utils/markdown'
 import { parseContent } from '../../../shared/parse'
 import { renderContentNodes } from '../utils/widgets-render'
@@ -9,19 +9,15 @@ import { renderContentNodes } from '../utils/widgets-render'
 /** 解析 Markdown 表格为行列数组；非表格内容返回 null */
 function parseMarkdownTable(text: string): string[][] | null {
   const lines = text.split('\n').map((l) => l.trim()).filter((l) => l.startsWith('|') && l.endsWith('|'))
-  // 表格至少：表头 + 分隔行 + 一行数据
   if (lines.length < 3) return null
-  const rows = lines.map((l) =>
-    l.slice(1, -1).split('|').map((cell) => cell.trim())
-  )
-  // 第二行是分隔行（仅含 - : 空格）才认为是表格
+  const rows = lines.map((l) => l.slice(1, -1).split('|').map((cell) => cell.trim()))
   const isSeparator = (cells: string[]) => cells.every((c) => /^:?-+:?$/.test(c))
   if (rows.length < 2 || !isSeparator(rows[1])) return null
   return [rows[0], ...rows.slice(2)]
 }
 
 /** 区块内容渲染：表格类解析为真 table（单元格支持行内强调），其余走控件协议流 */
-function BlockContent({ kind, content }: { kind: string; content: string }): JSX.Element {
+function SlotContent({ kind, content }: { kind: string; content: string }): React.JSX.Element {
   if (kind === 'table') {
     const rows = parseMarkdownTable(content)
     if (rows) {
@@ -44,78 +40,8 @@ function BlockContent({ kind, content }: { kind: string; content: string }): JSX
       )
     }
   }
-  // 控件协议流：段落/小标题/统计卡/引用/信息框/时间线；首段首字下沉在段落节点内处理
   const nodes = parseContent(content)
-  const rendered = renderContentNodes(nodes)
-  // 首字下沉：给第一个段落节点包裹装饰
-  const firstParaIdx = nodes.findIndex((n) => n.type === 'paragraph')
-  if (firstParaIdx >= 0) {
-    const enhanced = rendered.map((node, i) =>
-      i === firstParaIdx ? (
-        <p key={i} className="block-para">
-          <span className="drop-cap">{(nodes[i] as { text: string }).text.charAt(0)}</span>
-          {renderInlineMarkdown((nodes[i] as { text: string }).text.slice(1), `dc${i}`)}
-        </p>
-      ) : (
-        node
-      )
-    )
-    return <>{enhanced}</>
-  }
-  return <>{rendered}</>
-}
-
-/**
- * 区块盒：测量内容实际高度，超出设定高度时视觉延展（不截断）并提示溢出量。
- * 数据模型的 height 不动（版面语义保留），仅显示层自适应。
- */
-function BlockBox({
-  block,
-  selected,
-  onPointerDown,
-  children
-}: {
-  block: Block
-  selected: boolean
-  onPointerDown: (e: React.PointerEvent) => void
-  children: ReactNode
-}): JSX.Element {
-  const styles = useStyles()
-  const contentRef = useRef<HTMLDivElement>(null)
-  const [contentHeightPx, setContentHeightPx] = useState(0)
-  const boxHeightPx = mmToPx(block.height)
-  const overflowPx = Math.max(0, contentHeightPx - boxHeightPx)
-
-  // 测量内容实际高度（内容/宽度变化时重新测量）
-  useEffect(() => {
-    const el = contentRef.current
-    if (!el) return
-    const observer = new ResizeObserver(() => setContentHeightPx(el.scrollHeight))
-    observer.observe(el)
-    setContentHeightPx(el.scrollHeight)
-    return () => observer.disconnect()
-  }, [block.content, block.width])
-
-  return (
-    <div
-      className={`${styles.block} ${selected ? styles.blockSelected : ''} ${overflowPx > 0 ? styles.blockOverflow : ''}`}
-      style={{
-        left: mmToPx(block.x),
-        top: mmToPx(block.y),
-        width: mmToPx(block.width),
-        // 自适应：内容更高时延展区块视觉边界
-        height: boxHeightPx + overflowPx
-      }}
-      onPointerDown={onPointerDown}
-    >
-      {overflowPx > 0 && (
-        <span className={styles.overflowBadge}>+{Math.round(overflowPx / PX_PER_MM)}mm</span>
-      )}
-      <div ref={contentRef} style={{ position: 'absolute', inset: 0 }}>
-        {children}
-      </div>
-    </div>
-  )
+  return <>{renderContentNodes(nodes)}</>
 }
 
 const useStyles = makeStyles({
@@ -123,293 +49,123 @@ const useStyles = makeStyles({
     position: 'relative',
     backgroundColor: tokens.colorNeutralBackground1,
     boxShadow: tokens.shadow16,
-    flexShrink: 0
+    flexShrink: 0,
+    width: '210mm',
+    minHeight: '297mm',
+    padding: '15mm'
   },
-  block: {
-    position: 'absolute',
-    backgroundColor: tokens.colorBrandBackground2,
-    border: `1px dashed ${tokens.colorNeutralStroke1}`,
-    borderRadius: tokens.borderRadiusSmall,
-    cursor: 'move'
+  slot: {
+    position: 'relative',
+    backgroundColor: tokens.colorNeutralBackground1,
+    border: `1px solid ${tokens.colorNeutralStroke2}`,
+    borderRadius: tokens.borderRadiusMedium,
+    marginBottom: '8px',
+    cursor: 'pointer'
   },
-  blockSelected: {
+  slotSelected: {
     outline: `2px solid ${tokens.colorBrandStroke1}`,
-    outlineOffset: '-2px'
+    outlineOffset: '-1px'
   },
-  blockLabel: {
+  roleBadge: {
     position: 'absolute',
-    top: '4px',
-    left: '6px',
-    fontSize: tokens.fontSizeBase200,
+    top: '-8px',
+    left: '8px',
+    fontSize: tokens.fontSizeBase100,
+    padding: '0 6px',
+    backgroundColor: tokens.colorBrandBackground2,
+    color: tokens.colorBrandForeground1,
+    borderRadius: tokens.borderRadiusSmall,
+    pointerEvents: 'none'
+  },
+  slotEmpty: {
+    padding: '12px',
     color: tokens.colorNeutralForeground3,
-    pointerEvents: 'none',
-    whiteSpace: 'nowrap',
-    overflow: 'hidden',
-    maxWidth: 'calc(100% - 12px)'
+    fontSize: tokens.fontSizeBase200
   },
-  blockContent: {
-    position: 'absolute',
-    inset: 0,
-    padding: '8px',
+  slotContent: {
+    padding: '8px 10px',
     fontSize: tokens.fontSizeBase200,
     lineHeight: '1.5',
     color: tokens.colorNeutralForeground1,
     pointerEvents: 'none',
     userSelect: 'none'
   },
-  blockOverflow: {
-    borderBottomWidth: '2px',
-    borderBottomStyle: 'dashed',
-    borderBottomColor: tokens.colorPaletteRedForeground1
-  },
-  overflowBadge: {
+  slotStatus: {
     position: 'absolute',
-    bottom: '2px',
-    right: '6px',
-    fontSize: tokens.fontSizeBase100,
-    color: tokens.colorPaletteRedForeground1,
-    pointerEvents: 'none'
-  },
-  blockStatus: {
-    position: 'absolute',
-    bottom: '6px',
+    bottom: '4px',
     right: '8px',
-    fontSize: tokens.fontSizeBase200,
+    fontSize: tokens.fontSizeBase100,
     color: tokens.colorBrandForeground1
   },
-  blockError: {
-    position: 'absolute',
-    inset: 0,
-    padding: '8px',
-    paddingTop: '26px',
+  slotError: {
+    padding: '8px 10px',
     fontSize: tokens.fontSizeBase200,
     color: tokens.colorPaletteRedForeground1,
-    overflow: 'hidden',
-    pointerEvents: 'none'
-  },
-  handle: {
-    position: 'absolute',
-    width: '10px',
-    height: '10px',
-    backgroundColor: tokens.colorNeutralBackground1,
-    border: `1px solid ${tokens.colorBrandStroke1}`,
-    borderRadius: '50%',
-    zIndex: 10
-  },
-  marquee: {
-    position: 'absolute',
-    border: `1.5px dashed ${tokens.colorBrandStroke1}`,
-    backgroundColor: tokens.colorBrandBackground2,
     pointerEvents: 'none'
   }
 })
 
-/** 8 个缩放手柄方向 */
-type Handle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w'
-
-interface DragState {
-  blockId: string
-  startX: number
-  startY: number
-  origX: number
-  origY: number
-  origW: number
-  origH: number
-  mode: 'move' | Handle
-}
-
-interface Rect {
-  x: number
-  y: number
-  width: number
-  height: number
-}
-
-interface PageCanvasProps {
-  page: Page
-  selectedBlockId: string | null
-  /** 非空时处于"框选添加"模式，回调创建新区块（mm 坐标） */
-  drawRect?: (rect: Rect) => void
-  onSelectBlock: (id: string | null) => void
-  onChangeBlock: (blockId: string, patch: Partial<Block>) => void
-}
-
-const HANDLES: { dir: Handle; style: React.CSSProperties; cursor: string }[] = [
-  { dir: 'nw', cursor: 'nwse-resize', style: { left: -5, top: -5 } },
-  { dir: 'n', cursor: 'ns-resize', style: { left: '50%', top: -5, marginLeft: -5 } },
-  { dir: 'ne', cursor: 'nesw-resize', style: { right: -5, top: -5 } },
-  { dir: 'e', cursor: 'ew-resize', style: { right: -5, top: '50%', marginTop: -5 } },
-  { dir: 'se', cursor: 'nwse-resize', style: { right: -5, bottom: -5 } },
-  { dir: 's', cursor: 'ns-resize', style: { left: '50%', bottom: -5, marginLeft: -5 } },
-  { dir: 'sw', cursor: 'nesw-resize', style: { left: -5, bottom: -5 } },
-  { dir: 'w', cursor: 'ew-resize', style: { left: -5, top: '50%', marginTop: -5 } }
-]
-
-function PageView({
-  page,
-  selectedBlockId,
-  drawRect,
-  onSelectBlock,
-  onChangeBlock
-}: PageCanvasProps): JSX.Element {
-  const sheetRef = useRef<HTMLDivElement>(null)
-  const dragRef = useRef<DragState | null>(null)
-  const [marquee, setMarquee] = useState<Rect | null>(null)
+/** 单个槽位渲染（高度随内容自然流式撑开——CSS 文档流天然自适应，无需 JS 测量） */
+function SlotBox({
+  slot,
+  selected,
+  onPointerDown,
+  children
+}: {
+  slot: Slot
+  selected: boolean
+  onPointerDown: (e: React.PointerEvent) => void
+  children: ReactNode
+}): React.JSX.Element {
   const styles = useStyles()
-
-  /** 屏幕坐标 → 页面内 mm 坐标 */
-  const toMm = (clientX: number, clientY: number): { x: number; y: number } | null => {
-    const rect = sheetRef.current?.getBoundingClientRect()
-    if (!rect) return null
-    return {
-      x: (clientX - rect.left) / PX_PER_MM,
-      y: (clientY - rect.top) / PX_PER_MM
-    }
-  }
-
-  const startMarquee = (e: React.PointerEvent): void => {
-    if (!drawRect || e.button !== 0) return
-    const start = toMm(e.clientX, e.clientY)
-    if (!start) return
-
-    let current = start
-    setMarquee({ x: start.x, y: start.y, width: 0, height: 0 })
-
-    const onMove = (ev: PointerEvent): void => {
-      current = toMm(ev.clientX, ev.clientY) ?? start
-      setMarquee({
-        x: Math.min(start.x, current.x),
-        y: Math.min(start.y, current.y),
-        width: Math.abs(current.x - start.x),
-        height: Math.abs(current.y - start.y)
-      })
-    }
-    const onUp = (): void => {
-      window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerup', onUp)
-      setMarquee(null)
-      // 有效拖拽才创建（避免误点）
-      if (Math.abs(current.x - start.x) > 3 && Math.abs(current.y - start.y) > 3) {
-        drawRect({
-          x: Math.min(start.x, current.x),
-          y: Math.min(start.y, current.y),
-          width: Math.abs(current.x - start.x),
-          height: Math.abs(current.y - start.y)
-        })
-      }
-    }
-    window.addEventListener('pointermove', onMove)
-    window.addEventListener('pointerup', onUp)
-  }
-
-  const startDrag = (e: React.PointerEvent, block: Block, mode: DragState['mode']): void => {
-    e.stopPropagation()
-    if (e.button !== 0) return
-    onSelectBlock(block.id)
-    dragRef.current = {
-      blockId: block.id,
-      startX: e.clientX,
-      startY: e.clientY,
-      origX: block.x,
-      origY: block.y,
-      origW: block.width,
-      origH: block.height,
-      mode
-    }
-
-    const onMove = (ev: PointerEvent): void => {
-      const d = dragRef.current
-      if (!d) return
-      const dx = (ev.clientX - d.startX) / PX_PER_MM
-      const dy = (ev.clientY - d.startY) / PX_PER_MM
-
-      switch (d.mode) {
-        case 'move':
-          onChangeBlock(d.blockId, { x: d.origX + dx, y: d.origY + dy })
-          break
-        case 'se':
-          onChangeBlock(d.blockId, { width: d.origW + dx, height: d.origH + dy })
-          break
-        case 'ne':
-          onChangeBlock(d.blockId, { y: d.origY + dy, width: d.origW + dx, height: d.origH - dy })
-          break
-        case 'sw':
-          onChangeBlock(d.blockId, { x: d.origX + dx, width: d.origW - dx, height: d.origH + dy })
-          break
-        case 'nw':
-          onChangeBlock(d.blockId, {
-            x: d.origX + dx,
-            y: d.origY + dy,
-            width: d.origW - dx,
-            height: d.origH - dy
-          })
-          break
-        case 'n':
-          onChangeBlock(d.blockId, { y: d.origY + dy, height: d.origH - dy })
-          break
-        case 's':
-          onChangeBlock(d.blockId, { height: d.origH + dy })
-          break
-        case 'e':
-          onChangeBlock(d.blockId, { width: d.origW + dx })
-          break
-        case 'w':
-          onChangeBlock(d.blockId, { x: d.origX + dx, width: d.origW - dx })
-          break
-      }
-    }
-    const onUp = (): void => {
-      dragRef.current = null
-      window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerup', onUp)
-    }
-    window.addEventListener('pointermove', onMove)
-    window.addEventListener('pointerup', onUp)
-  }
-
   return (
     <div
-      ref={sheetRef}
-      className={styles.sheet}
-      style={{ width: mmToPx(210), height: mmToPx(297) }}
-      onPointerDown={startMarquee}
+      className={`${styles.slot} ${selected ? styles.slotSelected : ''}`}
+      data-slot-id={slot.id}
+      onPointerDown={onPointerDown}
     >
-      {page.blocks.map((block) => (
-        <BlockBox
-          key={block.id}
-          block={block}
-          selected={selectedBlockId === block.id}
-          onPointerDown={(e) => startDrag(e, block, 'move')}
+      <span className={styles.roleBadge}>{slot.role}</span>
+      {children}
+    </div>
+  )
+}
+
+interface PageViewProps {
+  page: Page
+  selectedSlotId: string | null
+  onSelectSlot: (id: string | null) => void
+}
+
+/** A4 页面：按文档流渲染槽位（流式排布已在数据层完成） */
+function PageView({ page, selectedSlotId, onSelectSlot }: PageViewProps): React.JSX.Element {
+  const styles = useStyles()
+  return (
+    <div className={styles.sheet}>
+      {page.slots.map((slot) => (
+        <SlotBox
+          key={slot.id}
+          slot={slot}
+          selected={selectedSlotId === slot.id}
+          onPointerDown={() => onSelectSlot(slot.id)}
         >
-          {/* 有正文时隐藏左上角标签，避免与生成内容重叠 */}
-          {!(block.status === 'done' && block.content) && (
-            <span className={styles.blockLabel}>
-              {block.prompt ? block.prompt.slice(0, 20) : '空白区块'}
-            </span>
-          )}
-          {block.status === 'generating' && <div className={styles.blockStatus}>生成中…</div>}
-          {block.status === 'error' && <div className={styles.blockError}>{block.content}</div>}
-          {block.status === 'done' && block.content && (
-            <div className={styles.blockContent}>
-              <BlockContent kind={block.kind} content={block.content} />
+          {slot.status === 'done' && slot.content ? (
+            <div className={styles.slotContent}>
+              <SlotContent kind={slot.kind} content={slot.content} />
+            </div>
+          ) : slot.status === 'generating' ? (
+            <div className={styles.slotEmpty}>生成中…</div>
+          ) : slot.status === 'error' ? (
+            <div className={styles.slotError}>{slot.content}</div>
+          ) : (
+            <div className={styles.slotEmpty}>
+              {slot.prompt ? slot.prompt.slice(0, 40) : '空槽位（在右侧填写提示词）'}
             </div>
           )}
-          {selectedBlockId === block.id &&
-            HANDLES.map(({ dir, style, cursor }) => (
-              <div
-                key={dir}
-                className={styles.handle}
-                style={{ ...style, cursor }}
-                onPointerDown={(e) => startDrag(e, block, dir)}
-              />
-            ))}
-        </BlockBox>
+          {slot.status === 'generating' && <span className={styles.slotStatus}>⟳</span>}
+        </SlotBox>
       ))}
-      {marquee && <div className={styles.marquee} style={{ left: mmToPx(marquee.x), top: mmToPx(marquee.y), width: mmToPx(marquee.width), height: mmToPx(marquee.height) }} />}
     </div>
   )
 }
 
 export default PageView
-
-const PX_PER_MM = 3.7795
