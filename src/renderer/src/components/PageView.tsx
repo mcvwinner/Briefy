@@ -210,17 +210,18 @@ function PageView({ page, selectedSlotId, onSelectSlot }: PageViewProps): React.
     </SlotBox>
   )
 
-  // 有左右栏时：full 槽位中位于半栏槽位之前的与半栏区并排组织
-  // 简化模型：full 槽位按序渲染；遇到首个半栏槽位时进入"双栏区"，双栏区结束后继续 full 流
+  // 有左右栏时：full 槽位按序渲染；遇到首个半栏槽位时进入"双栏区"，双栏区结束后继续 full 流。
+  // 注意：双栏区的开启条件必须包含右栏（只看左栏时，"左栏空、右栏有孤立槽位、full 已耗尽"
+  // 会导致循环体不推进任何游标 → 无限渲染循环 → 页面卡死）
   const rows: React.JSX.Element[] = []
-  let i = 0
   let fi = 0
   let li = 0
   let ri = 0
   let inColumns = false
   while (fi < full.length || li < left.length || ri < right.length) {
-    if (!inColumns && li < left.length) {
-      // 开启双栏区：渲染当前 full 之前的 full 已输出，先处理左右
+    const progress = fi + li + ri
+    if (!inColumns && (li < left.length || ri < right.length)) {
+      // 开启双栏区
       inColumns = true
       rows.push(
         <div key={`cols-${li}-${ri}`} className={styles.columnsRow}>
@@ -241,10 +242,11 @@ function PageView({ page, selectedSlotId, onSelectSlot }: PageViewProps): React.
     }
     if (inColumns && li >= left.length && ri >= right.length) inColumns = false
     if (fi < full.length) rows.push(renderSlot(full[fi++]))
+    // 防御：本轮未推进任何游标则退出，保证渲染必然终止（双栏状态机兜底）
+    if (fi + li + ri === progress) break
   }
   // 无半栏槽位时的兜底：只渲染 full 流
   if (rows.length === 0) full.forEach((s) => rows.push(renderSlot(s)))
-  void i
 
   return <div className={styles.sheet}>{rows}</div>
 }
