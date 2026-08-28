@@ -172,29 +172,45 @@ export function flowSlots(slots: Slot[], geo: LayoutGeometry = resolveGeometry()
 }
 
 /**
- * 自动分页：把底部（y + 高度）超出页面可容纳范围的槽位搬到新页。
- * 槽位的 y 由 flowSlots 按列排布，多栏下各列 y 独立流动，
- * 因此直接用槽位自身 bottom 判断溢出，而不是单栏游标累加（后者会误判另一栏的槽位）。
+ * 列内装填：按顺序逐槽尝试放进当前列（列尾 + 高度不超页则入本页并推进列尾）。
+ * 放不下的槽位进 overflow，但**不推进列尾**——后续同列更小的槽位仍有机会装入本页，
+ * 消除"一个大槽位堵住整列"造成的碎片空白（报纸装填语义：小条目先排，大文章跨页）。
+ */
+function packSlots(
+  slots: Slot[],
+  geo: LayoutGeometry
+): { kept: Slot[]; overflow: Slot[] } {
+  const tails = new Map<number, number>()
+  const kept: Slot[] = []
+  const overflow: Slot[] = []
+  const limit = geo.pageHeightMM - geo.marginMM
+  for (const slot of slots) {
+    const key = Math.round(slot.region.x / 10)
+    const y = tails.get(key) ?? geo.marginMM
+    const h = slot.estHeight + (slot.overflow ?? 0)
+    if (y + h <= limit || kept.length === 0) {
+      kept.push({ ...slot, region: { ...slot.region, y } })
+      tails.set(key, y + h)
+    } else {
+      overflow.push(slot)
+    }
+  }
+  return { kept, overflow }
+}
+
+/**
+ * 自动分页：把页面装不下的槽位搬到新页。
+ * 使用列内装填（packSlots）：放不下的大槽位不阻塞同列后续小槽位装入本页。
  * 搬入新页后重新流式排布；若新页仍溢出则继续拆分（收敛循环，保底轮次防意外）。
  */
 export function paginate(pages: Page[], geo: LayoutGeometry = resolveGeometry()): Page[] {
   const result: Page[] = []
-  const limit = geo.pageHeightMM - geo.marginMM
   for (const page of pages) {
-    let current: Page = { ...page, slots: flowSlots(page.slots, geo) }
+    let current: Page = { ...page, slots: page.slots }
     for (let round = 0; round < 50; round++) {
-      const kept: Slot[] = []
-      const overflow: Slot[] = []
-      for (const slot of current.slots) {
-        const bottom = slot.region.y + slot.estHeight + (slot.overflow ?? 0)
-        if (bottom <= limit || kept.length === 0) {
-          kept.push(slot)
-        } else {
-          overflow.push(slot)
-        }
-      }
+      const { kept, overflow } = packSlots(current.slots, geo)
       if (overflow.length === 0) {
-        result.push(current)
+        result.push({ ...current, slots: kept })
         break
       }
       result.push({ ...current, slots: kept })

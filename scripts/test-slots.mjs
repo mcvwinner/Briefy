@@ -59,6 +59,27 @@ const mkSlot = (x, y, estHeight, overflow = 0) => ({
   assert(pages[0].slots.length >= 1 && pages[0].slots.length < 3, 'paginate: 首页保留能放下的槽位')
 }
 
+// ---- paginate：列内回填（大槽位放不下不阻塞同列后续小槽位） ----
+{
+  // 全宽列：90mm 放不下 + 后续 30mm 能放下 → 小槽应留在首页
+  const big = mkSlot(15, MARGIN_MM, 90)
+  const mid = { ...mkSlot(15, MARGIN_MM, 90), id: 'mid' }
+  const small = { ...mkSlot(15, MARGIN_MM, 30), id: 'small' }
+  // 页面已占用约 240mm（三个槽在别列装满）后追加：构造单列顺序 [big, small]
+  // 可用高 267mm：先放 90 的头条（y=15），再放 240 的深度（放不下）→ 回填应让 30 的快讯上首页
+  const page = {
+    id: 'p1',
+    slots: [{ ...mkSlot(15, MARGIN_MM, 90), id: 'a' }, big, mid, small]
+  }
+  const pages = paginate([page])
+  const firstIds = pages[0].slots.map((s) => s.id)
+  assert(
+    firstIds.includes('small'),
+    'paginate: 列内回填——放不下的大槽不阻塞后续小槽装入本页'
+  )
+  assert(!firstIds.every((id) => id === 'small' && firstIds.indexOf('a') === -1), 'paginate: 首槽强制保留')
+}
+
 // ---- parseLayoutDoc：v1 blocks 迁移为 v2 slots ----
 {
   const v1 = JSON.stringify({

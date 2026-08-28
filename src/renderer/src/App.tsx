@@ -179,6 +179,8 @@ function App(): React.JSX.Element {
   const [generating, setGenerating] = useState(false)
   /** 进行中的生成任务（用户可终止） */
   const inFlightRef = useRef<Set<string>>(new Set())
+  /** 用户已请求终止：worker 不再从队列取新任务 */
+  const cancelRef = useRef(false)
 
   /** 生成单个槽位：失败自动重试 1 次，仍失败报错上屏；被用户终止则复位为空 */
   const runSlotTask = async (
@@ -187,6 +189,7 @@ function App(): React.JSX.Element {
     index: number,
     docContext: { title: string; outline: { position: string; prompt: string }[] }
   ): Promise<void> => {
+    if (cancelRef.current) return // 已请求终止：跳过队列任务
     const generationId = crypto.randomUUID()
     inFlightRef.current.add(generationId)
     layout.updateSlot(pageId, slot.id, { status: 'generating' })
@@ -245,13 +248,15 @@ function App(): React.JSX.Element {
   /** 并发生成所有槽位（并发上限 3），逐槽回填；附带文档大纲供 AI 语篇决策 */
   const generateAll = async (): Promise<void> => {
     if (!window.briefy) return
-    // 生成中再次点击 = 终止全部
+    // 生成中再次点击 = 终止：标记取消（worker 不再取新任务）+ abort 在途任务
     if (generating) {
+      cancelRef.current = true
       for (const id of [...inFlightRef.current]) {
         void window.briefy.cancelGeneration(id)
       }
       return
     }
+    cancelRef.current = false
     setGenerating(true)
     try {
       const tasks: { pageId: string; slot: Slot; index: number }[] = []
@@ -277,13 +282,14 @@ function App(): React.JSX.Element {
       const CONCURRENCY = 3
       let cursor = 0
       const worker = async (): Promise<void> => {
-        while (cursor < tasks.length) {
+        while (!cancelRef.current && cursor < tasks.length) {
           const task = tasks[cursor++]
           await runSlotTask(task.pageId, task.slot, task.index, docContext)
         }
       }
       await Promise.all(Array.from({ length: Math.min(CONCURRENCY, tasks.length) }, worker))
     } finally {
+      cancelRef.current = false
       setGenerating(false)
     }
   }
