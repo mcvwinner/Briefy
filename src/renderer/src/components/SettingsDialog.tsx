@@ -1,9 +1,12 @@
 import type * as React from 'react'
 import { useEffect, useState } from 'react'
 import {
+  Accordion,
+  AccordionItem,
+  AccordionHeader,
+  AccordionPanel,
   Button,
-  Checkbox,
-  Dialog,
+  Checkbox,  Dialog,
   DialogActions,
   DialogBody,
   DialogContent,
@@ -133,6 +136,8 @@ function SettingsDialog({ open, settings, onClose, onSaved }: SettingsDialogProp
   const [roleDuties, setRoleDuties] = useState<Partial<Record<string, string>>>({})
   const [editorialEnabled, setEditorialEnabled] = useState(false)
   const [reviewModel, setReviewModel] = useState('')
+  /** 职责编辑器展开的角色 */
+  const [dutyOpenItems, setDutyOpenItems] = useState<string[]>([])
 
   // 每次打开时同步当前已保存的配置
   useEffect(() => {
@@ -325,24 +330,40 @@ function SettingsDialog({ open, settings, onClose, onSaved }: SettingsDialogProp
                 </p>
               </div>
             </Field>
-            <Field label="角色职责自定义（留空 = 使用默认职责）">
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {(Object.keys(ROLE_DEFS) as SlotRole[]).map((role) => (
-                  <Field key={role} label={`${ROLE_DEFS[role].name}（${role}）`}>
-                    <Textarea
-                      className={styles.dutyArea}
-                      placeholder={ROLE_DEFS[role].duty || '（无默认）'}
-                      value={roleDuties[role] ?? ''}
-                      onChange={(_, d) => {
-                        const next = { ...roleDuties }
-                        if (d.value.trim()) next[role] = d.value
-                        else delete next[role]
-                        setRoleDuties(next)
-                      }}
-                    />
-                  </Field>
-                ))}
-              </div>
+            <Field label={`角色职责自定义（${Object.keys(roleDuties).length} 个已自定义，可同时生效；留空 = 使用默认职责）`}>
+              <Accordion openItems={dutyOpenItems} onToggle={(_, d) => setDutyOpenItems(d.openItems as string[])}>
+                {(Object.keys(ROLE_DEFS) as SlotRole[]).map((role) => {
+                  const customized = Boolean(roleDuties[role]?.trim())
+                  return (
+                    <AccordionItem key={role} value={role}>
+                      <AccordionHeader>
+                        <span>
+                          {ROLE_DEFS[role].name}
+                          {customized && (
+                            <span style={{ marginLeft: '6px', color: tokens.colorBrandForeground1, fontSize: tokens.fontSizeBase200 }}>
+                              （已自定义）
+                            </span>
+                          )}
+                        </span>
+                      </AccordionHeader>
+                      <AccordionPanel>
+                        <Textarea
+                          className={styles.dutyArea}
+                          placeholder={ROLE_DEFS[role].duty || '（无默认）'}
+                          value={roleDuties[role] ?? ''}
+                          onChange={(_, d) => {
+                            const next = { ...roleDuties }
+                            if (d.value.trim()) next[role] = d.value
+                            else delete next[role]
+                            setRoleDuties(next)
+                          }}
+                        />
+                      </AccordionPanel>
+                    </AccordionItem>
+                  )
+                })}
+              </Accordion>
+              <p className={styles.hint}>点击角色名展开编辑；每个角色的自定义职责互相独立、可同时生效。</p>
             </Field>
           </>
         )

@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { IpcRendererEvent } from 'electron'
 import type { AiSettings, InfoSource } from '../shared/settings'
 import type { LayoutDoc } from '../shared/layout'
 import type { UserPreset } from '../shared/user-preset'
@@ -43,6 +44,12 @@ const api = {
     articles: { index: number; role: string; content: string }[]
   ): Promise<{ comments: { index: number; problem: string; instruction: string }[] }> =>
     ipcRenderer.invoke('ai:review-issue', generationId, articles),
+  /** 生成过程心跳（AI 流式输出增量，ROADMAP Q2 反馈）；返回去注册函数 */
+  onHeartbeat: (cb: (generationId: string, delta: string) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, id: string, delta: string): void => cb(id, delta)
+    ipcRenderer.on('ai:heartbeat', listener)
+    return () => ipcRenderer.removeListener('ai:heartbeat', listener)
+  },
   devExportState: (): Promise<unknown> => ipcRenderer.invoke('dev:export-state'),
   saveDoc: (doc: LayoutDoc): Promise<string | null> => ipcRenderer.invoke('doc:save', doc),
   openDoc: (): Promise<LayoutDoc | null> => ipcRenderer.invoke('doc:open'),

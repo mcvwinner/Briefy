@@ -168,7 +168,8 @@ export async function generateSlotContent(
   slotIndex = -1,
   sourceContents: { name: string; note: string; text: string }[] = [],
   signal?: AbortSignal,
-  estHeight = 45
+  estHeight = 45,
+  onTick?: (delta: string) => void
 ): Promise<GenerateResult> {
   if (!settings.apiKey) throw new Error('未配置 API Key')
   if (!settings.model) throw new Error('未配置模型名')
@@ -209,35 +210,89 @@ export async function generateSlotContent(
   let usage: TokenUsage | undefined
 
   // 上限放宽到 12：一轮可能并行发多个 tool_calls，每次请求算一步。
-  // 每步请求 90s 超时 + 可被用户终止（外部 signal），避免“一直生成”无反馈
+  // 流式输出：正文增量通过 onTick 回调心跳（ROADMAP 用户反馈：长等待需可见变化）
   for (let step = 0; step < 12; step++) {
     const res = await fetch(url, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ model: settings.model, messages, tools: openaiTools }),
+      body: JSON.stringify({ model: settings.model, messages, tools: openaiTools, stream: true, stream_options: { include_usage: true } }),
       signal: AbortSignal.any([AbortSignal.timeout(90_000), ...(signal ? [signal] : [])])
     })
     if (!res.ok) {
       const errText = await res.text()
       throw new Error(`AI 接口错误 ${res.status}: ${errText.slice(0, 200)}`)
     }
-    const data = (await res.json()) as {
-      choices?: { message?: { content?: unknown; tool_calls?: { id: string; function: { name: string; arguments: string } }[] } }[]
-      usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number }
-    }
-    if (data.usage) {
-      usage = {
-        promptTokens: (usage?.promptTokens ?? 0) + (data.usage.prompt_tokens ?? 0),
-        completionTokens: (usage?.completionTokens ?? 0) + (data.usage.completion_tokens ?? 0),
-        totalTokens: (usage?.totalTokens ?? 0) + (data.usage.total_tokens ?? 0)
+    if (!res.body) throw new Error('AI 返回了空响应流')
+
+    // 解析 SSE：累积正文（心跳回调）与工具调用增量（按 index 拼装分片）
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder()
+    let buf = ''
+    let content = ''
+    const toolAcc: { id: string; function: { name: string; arguments: string } }[] = []
+    let finished = false
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buf += decoder.decode(value, { stream: true })
+      const lines = buf.split('\n')
+      buf = lines.pop() ?? ''
+      for (const raw of lines) {
+        const line = raw.trim()
+        if (!line.startsWith('data:')) continue
+        const payload = line.slice(5).trim()
+        if (!payload || payload === '[DONE]') {
+          if (payload === '[DONE]') finished = true
+          continue
+        }
+        let chunk: {
+          choices?: {
+            delta?: {
+              content?: string
+              tool_calls?: { index?: number; id?: string; function?: { name?: string; arguments?: string } }[]
+            }
+          }[]
+          usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number }
+        }
+        try {
+          chunk = JSON.parse(payload)
+        } catch {
+          continue
+        }
+        const delta = chunk.choices?.[0]?.delta
+        if (chunk.usage) {
+          usage = {
+            promptTokens: (usage?.promptTokens ?? 0) + (chunk.usage.prompt_tokens ?? 0),
+            completionTokens: (usage?.completionTokens ?? 0) + (chunk.usage.completion_tokens ?? 0),
+            totalTokens: (usage?.totalTokens ?? 0) + (chunk.usage.total_tokens ?? 0)
+          }
+        }
+        if (!delta) continue
+        if (delta.content) {
+          content += delta.content
+          onTick?.(delta.content)
+        }
+        if (delta.tool_calls) {
+          for (const tc of delta.tool_calls) {
+            const idx = tc.index ?? 0
+            toolAcc[idx] ??= { id: '', function: { name: '', arguments: '' } }
+            if (tc.id) toolAcc[idx].id = tc.id
+            if (tc.function?.name) toolAcc[idx].function.name = tc.function.name
+            if (tc.function?.arguments) toolAcc[idx].function.arguments += tc.function.arguments
+          }
+        }
       }
     }
-    const msg = data.choices?.[0]?.message
-    if (!msg) throw new Error('AI 返回了空响应')
+    void finished
+    const msg = {
+      role: 'assistant' as const,
+      content,
+      ...(toolAcc.length > 0 ? { tool_calls: toolAcc.filter((t) => t.function.name) } : {})
+    }
+    if (!msg.content && (!msg.tool_calls || msg.tool_calls.length === 0)) throw new Error('AI 返回了空响应')
 
     // 无工具调用 → 拿到正文，结束
     if (!msg.tool_calls?.length) {
-      const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content ?? '')
       return { content, usage }
     }
 
@@ -296,29 +351,72 @@ function extractJson(text: string): unknown {
   const cleaned = text.replace(/```(?:json)?/gi, '').trim()
   const start = cleaned.indexOf('{')
   const end = cleaned.lastIndexOf('}')
-  if (start === -1 || end === -1 || end <= start) throw new Error('输出中未找到 JSON')
+  if (start === -1 || end <= start) throw new Error('输出中未找到 JSON')
   return JSON.parse(cleaned.slice(start, end + 1))
 }
 
-/** 单次无工具对话（编辑部阶段专用）：结构简单、一次往返 */
-async function chatOnce(
+/** SSE 流式请求：累积正文增量并逐段回调心跳（ROADMAP 用户反馈：长等待需可见变化）。
+ *  返回完整正文；不处理工具调用。 */
+async function streamChatText(
   settings: AiSettings,
-  messages: { role: 'system' | 'user'; content: string }[],
-  signal?: AbortSignal,
-  modelOverride?: string
+  body: Record<string, unknown>,
+  signal: AbortSignal | undefined,
+  onTick?: (delta: string) => void
 ): Promise<string> {
   const url = (settings.baseUrl || 'https://api.openai.com/v1').replace(/\/+$/, '') + '/chat/completions'
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${settings.apiKey}` },
-    body: JSON.stringify({ model: modelOverride || settings.model, messages }),
+    body: JSON.stringify({ ...body, stream: true }),
     signal: AbortSignal.any([AbortSignal.timeout(90_000), ...(signal ? [signal] : [])])
   })
   if (!res.ok) throw new Error(`AI 接口错误 ${res.status}: ${(await res.text()).slice(0, 200)}`)
-  const data = (await res.json()) as { choices?: { message?: { content?: unknown } }[] }
-  const content = data.choices?.[0]?.message?.content
-  if (typeof content !== 'string' || !content.trim()) throw new Error('AI 返回了空响应')
+  if (!res.body) throw new Error('AI 返回了空响应流')
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buf = ''
+  let content = ''
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buf += decoder.decode(value, { stream: true })
+    const lines = buf.split('\n')
+    buf = lines.pop() ?? ''
+    for (const raw of lines) {
+      const line = raw.trim()
+      if (!line.startsWith('data:')) continue
+      const payload = line.slice(5).trim()
+      if (!payload || payload === '[DONE]') continue
+      try {
+        const delta = (JSON.parse(payload) as { choices?: { delta?: { content?: string } }[] }).choices?.[0]?.delta
+        if (delta?.content) {
+          content += delta.content
+          onTick?.(delta.content)
+        }
+      } catch {
+        // 忽略无法解析的行（心跳容错）
+      }
+    }
+  }
+  if (!content.trim()) throw new Error('AI 返回了空响应')
   return content
+}
+
+/** 单次无工具对话（编辑部阶段专用）：流式输出，onTick 逐段回调心跳 */
+async function chatOnce(
+  settings: AiSettings,
+  messages: { role: 'system' | 'user'; content: string }[],
+  signal?: AbortSignal,
+  modelOverride?: string,
+  onTick?: (delta: string) => void
+): Promise<string> {
+  return streamChatText(
+    settings,
+    { model: modelOverride || settings.model, messages },
+    signal,
+    onTick
+  )
 }
 
 const PLAN_SCHEMA = z.object({
@@ -367,7 +465,8 @@ export async function planIssue(
   settings: AiSettings,
   outline: { index: number; role: string; prompt: string }[],
   sourceDigests: { name: string; text: string }[],
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  onTick?: (delta: string) => void
 ): Promise<IssueAssignment[]> {
   const messages = [
     {
@@ -391,7 +490,7 @@ export async function planIssue(
       ].join('\n')
     }
   ]
-  const raw = await chatOnce(settings, messages, signal, settings.editorial?.reviewModel)
+  const raw = await chatOnce(settings, messages, signal, settings.editorial?.reviewModel, onTick)
   const parsed = PLAN_SCHEMA.parse(extractJson(raw))
   return parsed.assignments
 }
@@ -403,7 +502,8 @@ export async function planIssue(
 export async function reviewIssue(
   settings: AiSettings,
   articles: { index: number; role: string; content: string }[],
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  onTick?: (delta: string) => void
 ): Promise<ReviewComment[]> {
   const messages = [
     {
@@ -419,7 +519,7 @@ export async function reviewIssue(
       content: ['全部稿件：', ...articles.map((a) => `【${a.index}. ${a.role}】\n${a.content.slice(0, 1500)}`)].join('\n\n')
     }
   ]
-  const raw = await chatOnce(settings, messages, signal, settings.editorial?.reviewModel)
+  const raw = await chatOnce(settings, messages, signal, settings.editorial?.reviewModel, onTick)
   const parsed = REVIEW_SCHEMA.parse(extractJson(raw))
   return parsed.comments
 }

@@ -108,7 +108,8 @@ export function registerSettingsIpc(): void {
           slotIndex,
           sourceContents,
           controller.signal,
-          estHeight
+          estHeight,
+          (delta) => _event.sender.send('ai:heartbeat', generationId, delta)
         )
       } finally {
         activeGenerations.delete(generationId)
@@ -149,7 +150,9 @@ export function registerSettingsIpc(): void {
       activeGenerations.set(generationId, controller)
       try {
         const digests = await gatherSourceDigests(sources)
-        return await planIssue(settings, outline ?? [], digests, controller.signal)
+        return await planIssue(settings, outline ?? [], digests, controller.signal, (delta) =>
+          _event.sender.send('ai:heartbeat', generationId, delta)
+        )
       } finally {
         activeGenerations.delete(generationId)
       }
@@ -168,7 +171,9 @@ export function registerSettingsIpc(): void {
       const controller = new AbortController()
       activeGenerations.set(generationId, controller)
       try {
-        return await reviewIssue(settings, articles ?? [], controller.signal)
+        return await reviewIssue(settings, articles ?? [], controller.signal, (delta) =>
+          _event.sender.send('ai:heartbeat', generationId, delta)
+        )
       } finally {
         activeGenerations.delete(generationId)
       }

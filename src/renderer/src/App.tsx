@@ -81,6 +81,7 @@ declare global {
         generationId: string,
         articles: { index: number; role: string; content: string }[]
       ): Promise<{ comments: { index: number; problem: string; instruction: string }[] }>
+      onHeartbeat(cb: (generationId: string, delta: string) => void): () => void
       devExportState(): Promise<unknown>
       saveDoc(doc: LayoutDoc): Promise<string | null>
       openDoc(): Promise<LayoutDoc | null>
@@ -201,6 +202,16 @@ function App(): React.JSX.Element {
   const [reviewState, setReviewState] = useState<{
     comments: { index: number; role: string; problem: string; instruction: string }[]
   } | null>(null)
+  /** AI 输出心跳（流式增量尾部，供状态栏实时显示防"卡住"观感） */
+  const [heartbeat, setHeartbeat] = useState<string | null>(null)
+  const heartbeatBufRef = useRef('')
+  useEffect(() => {
+    const off = window.briefy?.onHeartbeat?.((_id, delta) => {
+      heartbeatBufRef.current = (heartbeatBufRef.current + delta).slice(-120)
+      setHeartbeat(heartbeatBufRef.current)
+    })
+    return off
+  }, [])
   /** 进行中的生成任务（用户可终止） */
   const inFlightRef = useRef<Set<string>>(new Set())
   /** 用户已请求终止：worker 不再从队列取新任务 */
@@ -301,6 +312,7 @@ function App(): React.JSX.Element {
       }
       await runSlotTask(slot, index, docContext)
     } finally {
+      setHeartbeat(null)
       setGenerating(false)
     }
   }
@@ -318,6 +330,8 @@ function App(): React.JSX.Element {
     }
     cancelRef.current = false
     setReviewState(null)
+    heartbeatBufRef.current = ''
+    setHeartbeat(null)
     setGenerating(true)
     try {
       const tasks: { pageId: string; slot: Slot; index: number }[] = []
@@ -417,6 +431,7 @@ function App(): React.JSX.Element {
     } finally {
       cancelRef.current = false
       setPhase(null)
+      setHeartbeat(null)
       setGenerating(false)
     }
   }
@@ -436,6 +451,7 @@ function App(): React.JSX.Element {
       await runSlotTask(task.slot, comment.index, docContext, `【主编审稿指令】${comment.problem}。${comment.instruction}`)
     } finally {
       setGenerating(false)
+      setHeartbeat(null)
       setReviewState(null)
     }
   }
@@ -836,7 +852,7 @@ function App(): React.JSX.Element {
           onRemove={layout.removePage}
         />
 
-        <StatusBar version="0.15.0" hasApiKey={hasApiKey} phase={phase} />
+        <StatusBar version="0.15.0" hasApiKey={hasApiKey} phase={phase} heartbeat={heartbeat} />
 
         <SettingsDialog
           open={settingsOpen}
