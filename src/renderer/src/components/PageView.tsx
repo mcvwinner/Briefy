@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { makeStyles, tokens } from '@fluentui/react-components'
 import type { Block, Page } from '../../../shared/layout'
 import { mmToPx } from '../utils/units'
@@ -65,6 +65,59 @@ function BlockContent({ kind, content }: { kind: string; content: string }): JSX
   return <>{rendered}</>
 }
 
+/**
+ * 区块盒：测量内容实际高度，超出设定高度时视觉延展（不截断）并提示溢出量。
+ * 数据模型的 height 不动（版面语义保留），仅显示层自适应。
+ */
+function BlockBox({
+  block,
+  selected,
+  onPointerDown,
+  children
+}: {
+  block: Block
+  selected: boolean
+  onPointerDown: (e: React.PointerEvent) => void
+  children: ReactNode
+}): JSX.Element {
+  const styles = useStyles()
+  const contentRef = useRef<HTMLDivElement>(null)
+  const [contentHeightPx, setContentHeightPx] = useState(0)
+  const boxHeightPx = mmToPx(block.height)
+  const overflowPx = Math.max(0, contentHeightPx - boxHeightPx)
+
+  // 测量内容实际高度（内容/宽度变化时重新测量）
+  useEffect(() => {
+    const el = contentRef.current
+    if (!el) return
+    const observer = new ResizeObserver(() => setContentHeightPx(el.scrollHeight))
+    observer.observe(el)
+    setContentHeightPx(el.scrollHeight)
+    return () => observer.disconnect()
+  }, [block.content, block.width])
+
+  return (
+    <div
+      className={`${styles.block} ${selected ? styles.blockSelected : ''} ${overflowPx > 0 ? styles.blockOverflow : ''}`}
+      style={{
+        left: mmToPx(block.x),
+        top: mmToPx(block.y),
+        width: mmToPx(block.width),
+        // 自适应：内容更高时延展区块视觉边界
+        height: boxHeightPx + overflowPx
+      }}
+      onPointerDown={onPointerDown}
+    >
+      {overflowPx > 0 && (
+        <span className={styles.overflowBadge}>+{Math.round(overflowPx / PX_PER_MM)}mm</span>
+      )}
+      <div ref={contentRef} style={{ position: 'absolute', inset: 0 }}>
+        {children}
+      </div>
+    </div>
+  )
+}
+
 const useStyles = makeStyles({
   sheet: {
     position: 'relative',
@@ -101,9 +154,21 @@ const useStyles = makeStyles({
     fontSize: tokens.fontSizeBase200,
     lineHeight: '1.5',
     color: tokens.colorNeutralForeground1,
-    overflow: 'hidden',
     pointerEvents: 'none',
     userSelect: 'none'
+  },
+  blockOverflow: {
+    borderBottomWidth: '2px',
+    borderBottomStyle: 'dashed',
+    borderBottomColor: tokens.colorPaletteRedForeground1
+  },
+  overflowBadge: {
+    position: 'absolute',
+    bottom: '2px',
+    right: '6px',
+    fontSize: tokens.fontSizeBase100,
+    color: tokens.colorPaletteRedForeground1,
+    pointerEvents: 'none'
   },
   blockStatus: {
     position: 'absolute',
@@ -310,15 +375,10 @@ function PageView({
       onPointerDown={startMarquee}
     >
       {page.blocks.map((block) => (
-        <div
+        <BlockBox
           key={block.id}
-          className={`${styles.block} ${selectedBlockId === block.id ? styles.blockSelected : ''}`}
-          style={{
-            left: mmToPx(block.x),
-            top: mmToPx(block.y),
-            width: mmToPx(block.width),
-            height: mmToPx(block.height)
-          }}
+          block={block}
+          selected={selectedBlockId === block.id}
           onPointerDown={(e) => startDrag(e, block, 'move')}
         >
           {/* 有正文时隐藏左上角标签，避免与生成内容重叠 */}
@@ -343,7 +403,7 @@ function PageView({
                 onPointerDown={(e) => startDrag(e, block, dir)}
               />
             ))}
-        </div>
+        </BlockBox>
       ))}
       {marquee && <div className={styles.marquee} style={{ left: mmToPx(marquee.x), top: mmToPx(marquee.y), width: mmToPx(marquee.width), height: mmToPx(marquee.height) }} />}
     </div>
