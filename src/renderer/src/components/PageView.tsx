@@ -276,6 +276,10 @@ function PageView({ page, selectedSlotId, onSelectSlot, onOverflow, prefs, docTi
       {slot.status === 'done' && slot.content ? (
         <div className={styles.slotContent} style={{ fontFamily: font, fontSize, lineHeight }}>
           <SlotContent kind={slot.kind} content={slot.content} />
+          {/* 来源署名（ROADMAP Q1）：挂在槽位上的源即视为本期事实依据 */}
+          {(slot.sources?.length ?? 0) > 0 && (
+            <div className="slot-sources">来源：{slot.sources.map((s) => s.name).join('、')}</div>
+          )}
         </div>
       ) : slot.status === 'generating' ? (
         <div className={styles.slotEmpty}>生成中…</div>

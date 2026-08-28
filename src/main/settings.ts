@@ -83,15 +83,16 @@ export function registerSettingsIpc(): void {
       const controller = new AbortController()
       activeGenerations.set(generationId, controller)
       try {
-        // 抓取该槽位内联挂载的信息源（失败的单个源跳过，不阻塞整体生成）
+        // 抓取该槽位内联挂载的信息源（带当日缓存，同源多槽只抓一次；失败标注原因不阻塞）
         const sourceContents: { name: string; note: string; text: string }[] = []
         for (const src of sources ?? []) {
           if (!src?.url) continue
           try {
             sourceContents.push({ name: src.name, note: src.note, text: await fetchPageText(src.url) })
-          } catch {
-            // 源抓取失败：跳过并在内容中如实说明
-            sourceContents.push({ name: src.name, note: src.note, text: '（此源抓取失败）' })
+          } catch (err) {
+            // 源抓取失败：如实标注原因（超时/HTTP 状态等），供 AI 在内容中说明与用户排查
+            const reason = err instanceof Error ? err.message : String(err)
+            sourceContents.push({ name: src.name, note: src.note, text: `（此源抓取失败：${reason}）` })
           }
         }
         return await generateSlotContent(

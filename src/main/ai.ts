@@ -85,7 +85,7 @@ function buildOutlineSection(context?: DocContext, currentIndex = -1): string {
 }
 
 /** 拼装单个槽位的生成提示词：全局规则 + 版面大纲 + 内容形式要求 + 用户提示词。
- *  settings 提供 P6b 增强：全局风格提示词（本报调性）+ 角色职责自定义覆盖 */
+ *  settings 提供 P6b 增强；enabledTools 用于时效锚定（ROADMAP Q1） */
 function buildSlotPrompt(
   prompt: string,
   role: string,
@@ -93,7 +93,8 @@ function buildSlotPrompt(
   context?: DocContext,
   index = -1,
   estHeight = 45,
-  settings?: AiSettings
+  settings?: AiSettings,
+  enabledTools: ToolId[] = []
 ): string {
   const kindRules: Record<string, string> = {
     text: [
@@ -123,11 +124,17 @@ function buildSlotPrompt(
     : ''
   // 容量换算：经验值约 4.5 字/mm（报纸字号），给出硬性字数上限防溢出破版
   const wordLimit = Math.max(40, Math.round(estHeight * 4.5))
+  // 时效锚定（ROADMAP Q1）：未启用联网工具时禁止时效性事实陈述
+  const canFetchFacts = enabledTools.includes('webSearch') || enabledTools.includes('fetchPage')
+  const timelyAnchor = canFetchFacts
+    ? '时效要求：本槽涉及今日事实（新闻/数据/发布）时，必须先调用搜索或抓取工具获取真实信息，再基于工具结果写作；禁止凭记忆编造日期与数字。'
+    : '时效约束：本槽未启用联网工具，禁止陈述“今日/最新/刚刚发布”等时效性事实与具体当日数据；只写背景性、常识性或分析性内容。'
   const sections = [
     '你是一份个性化报纸的内容作者。请根据要求撰写该槽位内容。',
     buildOutlineSection(context, index),
     styleSection,
     roleSection,
+    timelyAnchor,
     `要求：内容紧凑、信息密度高、符合报纸文风。全文严格控制在 ${wordLimit} 字以内——这是版面物理容量的硬性上限，超出会被裁切；宁可精炼勿冗长，写完即止。`,
     `内容形式：${kindRules[kind] ?? kindRules.text}`,
     `槽位主题要求：${prompt}`
@@ -175,7 +182,7 @@ export async function generateSlotContent(
     {
       role: 'user',
       content: [
-        buildSlotPrompt(prompt, role, kind, docContext, slotIndex, estHeight, settings),
+        buildSlotPrompt(prompt, role, kind, docContext, slotIndex, estHeight, settings, enabledTools),
         // 信息源注入：AI 基于真实抓取内容写作，而非凭记忆
         ...(sourceContents.length > 0
           ? [

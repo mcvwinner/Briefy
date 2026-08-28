@@ -35,11 +35,31 @@ function extractText(html: string): string {
     .trim()
 }
 
+/** 源抓取当日缓存（ROADMAP Q1）：key = URL，跨槽位共享，日期变更即失效 */
+const pageTextCache = new Map<string, { date: string; text: string }>()
+
+/** 取 URL 的当日抓取缓存；未命中返回 undefined */
+export function getCachedPageText(url: string): string | undefined {
+  const hit = pageTextCache.get(url)
+  if (!hit) return undefined
+  if (hit.date !== new Date().toDateString()) {
+    pageTextCache.delete(url) // 隔日失效：时效内容不跨天复用
+    return undefined
+  }
+  return hit.text
+}
+
+function putCachedPageText(url: string, text: string): void {
+  pageTextCache.set(url, { date: new Date().toDateString(), text })
+}
+
 /**
- * 抓取网页正文（Electron net.fetch 走系统网络栈，代理友好）。
+ * 抓取网页正文（带当日缓存）：同源多槽只抓一次。
  * 长文用 LangChain 切分器压缩为前几块，避免撑爆上下文。
  */
 export async function fetchPageText(url: string, maxChars = 4000): Promise<string> {
+  const cached = getCachedPageText(url)
+  if (cached !== undefined) return cached
   // 20s 超时：挂住的源不阻塞生成（调用方 catch 后跳过该源并如实标注）
   const res = await net.fetch(url, {
     headers: { 'User-Agent': 'Mozilla/5.0 Briefy/0.2' },
@@ -51,5 +71,7 @@ export async function fetchPageText(url: string, maxChars = 4000): Promise<strin
   // LangChain 切分器按语义边界切块，取第一块作为正文摘要
   const splitter = new RecursiveCharacterTextSplitter({ chunkSize: maxChars, chunkOverlap: 100 })
   const docs: Document[] = await splitter.createDocuments([text])
-  return docs[0]?.pageContent ?? text.slice(0, maxChars)
+  const result = docs[0]?.pageContent ?? text.slice(0, maxChars)
+  putCachedPageText(url, result)
+  return result
 }

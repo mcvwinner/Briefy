@@ -221,7 +221,18 @@
   color: #444;
 }
 
-/* ---------- 打印/导出模式（?print=1，供 printToPDF 截取的干净版式） ---------- */
+/* 来源署名（ROADMAP Q1）：槽位尾部小字，吃版式字号与灰阶 */
+.slot-sources {
+  margin-top: 4px;
+  padding-top: 3px;
+  border-top-width: 1px;
+  border-top-style: dashed;
+  border-top-color: #c8c8c8;
+  font-size: 7.5pt;
+  color: #757575;
+}
+
+/* 打印/导出模式（?print=1，供 printToPDF 截取的干净版式） ---------- */
 /* 逐页渲染真实 A4 版式（PageView 的 sheet 是 210×297mm），每页强制分页，
    物理尺寸由 sheet 自身保证，内容永不突破纸张 */
 .print-view {
