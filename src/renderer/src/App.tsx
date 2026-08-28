@@ -1,5 +1,5 @@
 import type * as React from 'react'
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import {
   FluentProvider,
   makeStyles,
@@ -53,14 +53,17 @@ declare global {
       getSettings(): Promise<AiSettings>
       saveSettings(settings: AiSettings): Promise<void>
       generateSlot(
+        generationId: string,
         prompt: string,
         role: string,
         kind: string,
         tools: string[],
         docContext: unknown,
         slotIndex: number,
-        sources: InfoSource[]
+        sources: InfoSource[],
+        estHeight: number
       ): Promise<{ content: string }>
+      cancelGeneration(generationId: string): Promise<boolean>
       devExportState(): Promise<unknown>
       saveDoc(doc: LayoutDoc): Promise<string | null>
       openDoc(): Promise<LayoutDoc | null>
@@ -174,8 +177,81 @@ function App(): React.JSX.Element {
 
   /** 并发生成所有槽位（并发上限 3），逐槽回填；附带文档大纲供 AI 语篇决策 */
   const [generating, setGenerating] = useState(false)
-  const generateAll = async (): Promise<void> => {
+  /** 进行中的生成任务（用户可终止） */
+  const inFlightRef = useRef<Set<string>>(new Set())
+
+  /** 生成单个槽位：失败自动重试 1 次，仍失败报错上屏；被用户终止则复位为空 */
+  const runSlotTask = async (
+    pageId: string,
+    slot: Slot,
+    index: number,
+    docContext: { title: string; outline: { position: string; prompt: string }[] }
+  ): Promise<void> => {
+    const generationId = crypto.randomUUID()
+    inFlightRef.current.add(generationId)
+    layout.updateSlot(pageId, slot.id, { status: 'generating' })
+    try {
+      let content: string | undefined
+      for (let attempt = 0; attempt < 2 && content === undefined; attempt++) {
+        try {
+          content = (
+            await window.briefy!.generateSlot(
+              generationId,
+              slot.prompt,
+              ROLE_DEFS[slot.role].name,
+              slot.kind,
+              slot.tools ?? ['getCurrentTime'],
+              docContext,
+              index,
+              slot.sources ?? [],
+              slot.estHeight
+            )
+          ).content
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err)
+          // 用户主动终止：复位槽位，不重试不报错
+          if (message.includes('abort')) {
+            layout.updateSlot(pageId, slot.id, { status: 'empty', content: undefined })
+            return
+          }
+          if (attempt === 0) continue // 第一次失败：自动重试 1 次
+          layout.updateSlot(pageId, slot.id, { content: message, status: 'error' })
+          return
+        }
+      }
+      layout.updateSlot(pageId, slot.id, { content: content ?? '（生成失败：空响应）', status: 'done' })
+    } finally {
+      inFlightRef.current.delete(generationId)
+    }
+  }
+
+  /** 生成单个槽位（属性面板"生成此槽位"） */
+  const generateOne = async (pageId: string, slot: Slot, index: number): Promise<void> => {
     if (!window.briefy || generating) return
+    setGenerating(true)
+    try {
+      const docContext = {
+        title: layout.doc.title,
+        outline: layout.doc.pages.flatMap((page, pi) =>
+          page.slots.map((s) => ({ position: `第${pi + 1}页·${ROLE_DEFS[s.role].name}`, prompt: s.prompt }))
+        )
+      }
+      await runSlotTask(pageId, slot, index, docContext)
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  /** 并发生成所有槽位（并发上限 3），逐槽回填；附带文档大纲供 AI 语篇决策 */
+  const generateAll = async (): Promise<void> => {
+    if (!window.briefy) return
+    // 生成中再次点击 = 终止全部
+    if (generating) {
+      for (const id of [...inFlightRef.current]) {
+        void window.briefy.cancelGeneration(id)
+      }
+      return
+    }
     setGenerating(true)
     try {
       const tasks: { pageId: string; slot: Slot; index: number }[] = []
@@ -203,24 +279,7 @@ function App(): React.JSX.Element {
       const worker = async (): Promise<void> => {
         while (cursor < tasks.length) {
           const task = tasks[cursor++]
-          layout.updateSlot(task.pageId, task.slot.id, { status: 'generating' })
-          try {
-            const { content } = await window.briefy!.generateSlot(
-              task.slot.prompt,
-              ROLE_DEFS[task.slot.role].name,
-              task.slot.kind,
-              task.slot.tools ?? ['getCurrentTime'],
-              docContext,
-              task.index,
-              task.slot.sources ?? []
-            )
-            layout.updateSlot(task.pageId, task.slot.id, { content, status: 'done' })
-          } catch (err) {
-            layout.updateSlot(task.pageId, task.slot.id, {
-              content: err instanceof Error ? err.message : String(err),
-              status: 'error'
-            })
-          }
+          await runSlotTask(task.pageId, task.slot, task.index, docContext)
         }
       }
       await Promise.all(Array.from({ length: Math.min(CONCURRENCY, tasks.length) }, worker))
@@ -477,14 +536,14 @@ function App(): React.JSX.Element {
               </MenuList>
             </MenuPopover>
           </Menu>
-          <Tooltip content="让 AI 填充全部槽位：按各槽位的角色与提示词并行写作；可在设置中配置模型与信息源" relationship="description">
+          <Tooltip content={generating ? '点击终止全部生成任务' : '让 AI 填充全部槽位：按各槽位的角色与提示词并行写作；可在设置中配置模型与信息源'} relationship="description">
             <ToolbarButton
               icon={<WandRegular />}
-              disabled={!hasApiKey || generating}
+              disabled={!hasApiKey}
               appearance={hasApiKey ? 'primary' : undefined}
               onClick={() => void generateAll()}
             >
-              {generating ? '生成中…' : '生成'}
+              {generating ? '终止' : '生成'}
             </ToolbarButton>
           </Tooltip>
           <Tooltip content={isDark ? '切换到亮色模式' : '切换到暗色模式（主题偏好会保存）'} relationship="description">
@@ -531,6 +590,14 @@ function App(): React.JSX.Element {
               const updated = { ...settings, sources: merged }
               setSettings(updated)
               void window.briefy?.saveSettings?.(updated)
+            }}
+            onGenerateSlot={(slot) => {
+              if (layout.selection) {
+                const index = layout.doc.pages
+                  .flatMap((p) => p.slots)
+                  .findIndex((s) => s.id === slot.id)
+                void generateOne(layout.selection.page.id, slot, Math.max(0, index))
+              }
             }}
             onChange={(patch) => {
               if (layout.selection) {

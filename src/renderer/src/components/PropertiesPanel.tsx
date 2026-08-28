@@ -14,7 +14,7 @@ import {
   makeStyles,
   tokens
 } from '@fluentui/react-components'
-import { DeleteRegular } from '@fluentui/react-icons'
+import { DeleteRegular, WandRegular } from '@fluentui/react-icons'
 import { useState } from 'react'
 import type { Slot, SlotKind, SlotRole, ToolId } from '../../../shared/layout'
 import { ROLE_DEFS } from '../../../shared/layout'
@@ -117,6 +117,8 @@ interface PropertiesPanelProps {
   commonSources: InfoSource[]
   /** 把槽位上的源收藏进常用库（自动去重持久化） */
   onAddCommonSources: (srcs: InfoSource[]) => void
+  /** 仅生成此槽位 */
+  onGenerateSlot?: (slot: Slot) => void
   onChange: (patch: Partial<Slot>) => void
   onSetWidth: (widthMode: 'full' | 'half-left' | 'half-right' | 'sidebar') => void
   onRemove: () => void
@@ -127,6 +129,7 @@ function PropertiesPanel({
   slot,
   commonSources,
   onAddCommonSources,
+  onGenerateSlot,
   onChange,
   onSetWidth,
   onRemove
@@ -224,6 +227,17 @@ function PropertiesPanel({
       </Field>
 
       <WidgetEditor slot={slot} onChange={onChange} />
+
+      {onGenerateSlot && slot.prompt.trim() && (
+        <Button
+          appearance="primary"
+          icon={<WandRegular />}
+          onClick={() => onGenerateSlot(slot)}
+          style={{ marginTop: '8px' }}
+        >
+          生成此槽位
+        </Button>
+      )}
 
       <SlotSourcesEditor
         slot={slot}

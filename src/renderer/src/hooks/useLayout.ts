@@ -31,6 +31,13 @@ export function useLayout() {
     }))
   }, [])
 
+  /** 全文档摊平重排：所有槽位按顺序贪心装满每页，消除腾挪/调整产生的碎片空白页。
+   *  首页 id 保留（当前页不跳变），新页由 paginate 生成 */
+  const repaginateAll = useCallback((pages: Page[]): Page[] => {
+    const flat = pages.flatMap((p) => p.slots)
+    return paginate([{ id: pages[0]?.id ?? crypto.randomUUID(), slots: flat }])
+  }, [])
+
   /** 添加槽位：选角色 + 宽度模式，自动流式排布 + 自动分页。
    *  分页可能把新槽位挤到新页，添加后自动切到它实际所在的页并选中（否则用户以为没生效） */
   const addSlot = useCallback(
@@ -38,11 +45,11 @@ export function useLayout() {
       const region = { ...regionFor(widthMode), y: MARGIN_MM }
       const slot = createSlot(role, region, DEFAULT_SLOT_HEIGHT[role])
       if (prompt) slot.prompt = prompt
-      // 单次 setDoc：先 flowSlots 再 paginate，避免中间态与 updater 内生成随机页 id
+      // 单次 setDoc：摊平重排（贪心装满，避免碎片空白页）
       const pages = doc.pages.map((p) =>
-        p.id === pageId ? { ...p, slots: flowSlots([...p.slots, slot]) } : p
+        p.id === pageId ? { ...p, slots: [...p.slots, slot] } : p
       )
-      const nextPages = paginate(pages)
+      const nextPages = repaginateAll(pages)
       setDoc({ ...doc, pages: nextPages })
       // 定位新槽位实际所在页（可能因溢出被分到新页）并选中
       const target = nextPages.find((p) => p.slots.some((s) => s.id === slot.id))
@@ -72,18 +79,18 @@ export function useLayout() {
         const slots = p.slots.map((s) =>
           s.id === slotId ? { ...s, region: { ...s.region, ...region } } : s
         )
-        return { ...p, slots: flowSlots(slots) }
+        return { ...p, slots: slots }
       })
-      const nextPages = paginate(pages)
+      const nextPages = repaginateAll(pages)
       setDoc({ ...doc, pages: nextPages })
       const target = nextPages.find((p) => p.slots.some((s) => s.id === slotId))
       if (target) setCurrentPageId(target.id)
     },
-    [doc]
+    [doc, repaginateAll]
   )
 
   /** 槽位实际渲染高度超出预估时回写 overflow（PageView 测量触发），
-   *  重新流式排布 + 自动分页，把放不下的槽位腾挪到下一页 */
+   *  摊平重排贪心装满：内容总量装得下 N 页就仍排 N 页，不再产生碎片空白页 */
   const growSlotOverflow = useCallback(
     (slotId: string, deltaMm: number): void => {
       const pages = doc.pages.map((p) => {
@@ -91,12 +98,16 @@ export function useLayout() {
         const slots = p.slots.map((s) =>
           s.id === slotId ? { ...s, overflow: (s.overflow ?? 0) + deltaMm } : s
         )
-        return { ...p, slots: flowSlots(slots) }
+        return { ...p, slots }
       })
-      const nextPages = paginate(pages)
+      const nextPages = repaginateAll(pages)
       setDoc({ ...doc, pages: nextPages })
+      // 当前页可能被合并：失效时回退到第一页
+      if (!nextPages.some((p) => p.id === currentPageId) && nextPages[0]) {
+        setCurrentPageId(nextPages[0].id)
+      }
     },
-    [doc]
+    [doc, currentPageId, repaginateAll]
   )
 
   const removeSlot = useCallback(

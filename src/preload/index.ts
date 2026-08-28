@@ -7,15 +7,30 @@ const api = {
   getSettings: (): Promise<AiSettings> => ipcRenderer.invoke('settings:get'),
   saveSettings: (settings: AiSettings): Promise<void> => ipcRenderer.invoke('settings:set', settings),
   generateSlot: (
+    generationId: string,
     prompt: string,
     role: string,
     kind: string,
     tools: string[],
     docContext: unknown,
     slotIndex: number,
-    sources: InfoSource[]
+    sources: InfoSource[],
+    estHeight: number
   ): Promise<{ content: string }> =>
-    ipcRenderer.invoke('ai:generate-slot', prompt, role, kind, tools, docContext, slotIndex, sources),
+    ipcRenderer.invoke(
+      'ai:generate-slot',
+      generationId,
+      prompt,
+      role,
+      kind,
+      tools,
+      docContext,
+      slotIndex,
+      sources,
+      estHeight
+    ),
+  cancelGeneration: (generationId: string): Promise<boolean> =>
+    ipcRenderer.invoke('ai:cancel-generation', generationId),
   devExportState: (): Promise<unknown> => ipcRenderer.invoke('dev:export-state'),
   saveDoc: (doc: LayoutDoc): Promise<string | null> => ipcRenderer.invoke('doc:save', doc),
   openDoc: (): Promise<LayoutDoc | null> => ipcRenderer.invoke('doc:open'),

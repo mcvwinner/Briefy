@@ -90,7 +90,8 @@ function buildSlotPrompt(
   role: string,
   kind: string,
   context?: DocContext,
-  index = -1
+  index = -1,
+  estHeight = 45
 ): string {
   const kindRules: Record<string, string> = {
     text: [
@@ -108,11 +109,13 @@ function buildSlotPrompt(
   }
   const roleDef = Object.values(ROLE_DEFS).find((d) => d.name === role)
   const roleSection = roleDef?.duty ? `槽位职责：${roleDef.duty}` : ''
+  // 容量换算：经验值约 4.5 字/mm（报纸字号），给出硬性字数上限防溢出破版
+  const wordLimit = Math.max(40, Math.round(estHeight * 4.5))
   const sections = [
     '你是一份个性化报纸的内容作者。请根据要求撰写该槽位内容。',
     buildOutlineSection(context, index),
     roleSection,
-    '要求：内容紧凑、信息密度高、符合报纸文风；字数与槽位预估匹配（宁可精炼勿冗长）。',
+    `要求：内容紧凑、信息密度高、符合报纸文风。全文严格控制在 ${wordLimit} 字以内——这是版面物理容量的硬性上限，超出会被裁切；宁可精炼勿冗长，写完即止。`,
     `内容形式：${kindRules[kind] ?? kindRules.text}`,
     `槽位主题要求：${prompt}`
   ]
@@ -135,7 +138,9 @@ export async function generateSlotContent(
   enabledTools: ToolId[],
   docContext?: DocContext,
   slotIndex = -1,
-  sourceContents: { name: string; note: string; text: string }[] = []
+  sourceContents: { name: string; note: string; text: string }[] = [],
+  signal?: AbortSignal,
+  estHeight = 45
 ): Promise<GenerateResult> {
   if (!settings.apiKey) throw new Error('未配置 API Key')
   if (!settings.model) throw new Error('未配置模型名')
@@ -157,7 +162,7 @@ export async function generateSlotContent(
     {
       role: 'user',
       content: [
-        buildSlotPrompt(prompt, role, kind, docContext, slotIndex),
+        buildSlotPrompt(prompt, role, kind, docContext, slotIndex, estHeight),
         // 信息源注入：AI 基于真实抓取内容写作，而非凭记忆
         ...(sourceContents.length > 0
           ? [
@@ -172,12 +177,14 @@ export async function generateSlotContent(
     }
   ]
 
-  // 上限放宽到 12：一轮可能并行发多个 tool_calls，每次请求算一步
+  // 上限放宽到 12：一轮可能并行发多个 tool_calls，每次请求算一步。
+  // 每步请求 90s 超时 + 可被用户终止（外部 signal），避免“一直生成”无反馈
   for (let step = 0; step < 12; step++) {
     const res = await fetch(url, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ model: settings.model, messages, tools: openaiTools })
+      body: JSON.stringify({ model: settings.model, messages, tools: openaiTools }),
+      signal: AbortSignal.any([AbortSignal.timeout(90_000), ...(signal ? [signal] : [])])
     })
     if (!res.ok) {
       const errText = await res.text()
@@ -218,7 +225,8 @@ export async function generateSlotContent(
   const finalRes = await fetch(url, {
     method: 'POST',
     headers,
-    body: JSON.stringify({ model: settings.model, messages })
+    body: JSON.stringify({ model: settings.model, messages }),
+    signal: AbortSignal.any([AbortSignal.timeout(90_000), ...(signal ? [signal] : [])])
   })
   if (!finalRes.ok) throw new Error(`AI 接口错误 ${finalRes.status}`)
   const finalData = (await finalRes.json()) as {

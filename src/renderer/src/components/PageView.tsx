@@ -17,29 +17,35 @@ function parseMarkdownTable(text: string): string[][] | null {
   return [rows[0], ...rows.slice(2)]
 }
 
-/** 区块内容渲染：表格类解析为真 table（单元格支持行内强调），其余走控件协议流 */
+/** 行列数组渲染为真 table（单元格支持行内强调） */
+function renderTable(rows: string[][]): React.JSX.Element {
+  return (
+    <table className="block-table">
+      <tbody>
+        {rows.map((row, ri) => (
+          <tr key={ri}>
+            {row.map((cell, ci) =>
+              ri === 0 ? (
+                <th key={ci}>{renderInlineMarkdown(cell, `th${ri}${ci}`)}</th>
+              ) : (
+                <td key={ci}>{renderInlineMarkdown(cell, `td${ri}${ci}`)}</td>
+              )
+            )}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
+}
+
+/** 区块内容渲染：表格类解析为真 table，其余走控件协议流。
+ *  纯文字槽也嗅探表格：AI 即使在 text 槽返回了 Markdown 表格（未按 kind 约定）也正常渲染 */
 function SlotContent({ kind, content }: { kind: string; content: string }): React.JSX.Element {
-  if (kind === 'table') {
+  const isTableLike =
+    kind === 'table' || content.split('\n').filter((l) => l.trim().startsWith('|')).length >= 3
+  if (isTableLike) {
     const rows = parseMarkdownTable(content)
-    if (rows) {
-      return (
-        <table className="block-table">
-          <tbody>
-            {rows.map((row, ri) => (
-              <tr key={ri}>
-                {row.map((cell, ci) =>
-                  ri === 0 ? (
-                    <th key={ci}>{renderInlineMarkdown(cell, `th${ri}${ci}`)}</th>
-                  ) : (
-                    <td key={ci}>{renderInlineMarkdown(cell, `td${ri}${ci}`)}</td>
-                  )
-                )}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )
-    }
+    if (rows) return renderTable(rows)
   }
   const nodes = parseContent(content)
   return <>{renderContentNodes(nodes)}</>

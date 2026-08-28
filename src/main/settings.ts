@@ -46,46 +46,65 @@ async function writeSettings(settings: AiSettings): Promise<void> {
   }
 }
 
+/** 进行中的生成任务（供用户终止） */
+const activeGenerations = new Map<string, AbortController>()
+
 export function registerSettingsIpc(): void {
   ipcMain.handle('settings:get', () => readSettings())
   ipcMain.handle('settings:set', (_event, settings: AiSettings) => writeSettings(settings))
-  // 单槽位生成：主进程统一持有 Key 与信息源，渲染进程不接触密钥
+  // 单槽位生成：主进程统一持有 Key 与信息源，渲染进程不接触密钥。
+  // generationId 用于用户终止（ai:cancel-generation）
   ipcMain.handle(
     'ai:generate-slot',
     async (
       _event,
+      generationId: string,
       prompt: string,
       role: string,
       kind: string,
       tools: string[],
       docContext: DocContext,
       slotIndex: number,
-      sources: InfoSource[]
+      sources: InfoSource[],
+      estHeight: number
     ) => {
       const settings = await readSettings()
-      // 抓取该槽位内联挂载的信息源（失败的单个源跳过，不阻塞整体生成）
-      const sourceContents: { name: string; note: string; text: string }[] = []
-      for (const src of sources ?? []) {
-        if (!src?.url) continue
-        try {
-          sourceContents.push({ name: src.name, note: src.note, text: await fetchPageText(src.url) })
-        } catch {
-          // 源抓取失败：跳过并在内容中如实说明
-          sourceContents.push({ name: src.name, note: src.note, text: '（此源抓取失败）' })
+      const controller = new AbortController()
+      activeGenerations.set(generationId, controller)
+      try {
+        // 抓取该槽位内联挂载的信息源（失败的单个源跳过，不阻塞整体生成）
+        const sourceContents: { name: string; note: string; text: string }[] = []
+        for (const src of sources ?? []) {
+          if (!src?.url) continue
+          try {
+            sourceContents.push({ name: src.name, note: src.note, text: await fetchPageText(src.url) })
+          } catch {
+            // 源抓取失败：跳过并在内容中如实说明
+            sourceContents.push({ name: src.name, note: src.note, text: '（此源抓取失败）' })
+          }
         }
+        return await generateSlotContent(
+          settings,
+          prompt,
+          role,
+          kind,
+          tools as ToolId[],
+          docContext,
+          slotIndex,
+          sourceContents,
+          controller.signal,
+          estHeight
+        )
+      } finally {
+        activeGenerations.delete(generationId)
       }
-      return generateSlotContent(
-        settings,
-        prompt,
-        role,
-        kind,
-        tools as ToolId[],
-        docContext,
-        slotIndex,
-        sourceContents
-      )
     }
   )
+  // 用户终止某次生成
+  ipcMain.handle('ai:cancel-generation', (_event, generationId: string) => {
+    activeGenerations.get(generationId)?.abort()
+    return true
+  })
   // 开发/自动化验证用：导出真实状态到临时文件（测试与 AI 助手可读取）
   ipcMain.handle('dev:export-state', async () => {
     const settings = await readSettings()
