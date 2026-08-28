@@ -142,8 +142,16 @@ function buildSlotPrompt(
   return sections.filter(Boolean).join('\n')
 }
 
+export interface TokenUsage {
+  promptTokens: number
+  completionTokens: number
+  totalTokens: number
+}
+
 export interface GenerateResult {
   content: string
+  /** 本次生成的 token 用量（多次工具调用请求累加；ROADMAP Q5 度量） */
+  usage?: TokenUsage
 }
 
 /**
@@ -197,6 +205,9 @@ export async function generateSlotContent(
     }
   ]
 
+  /** 本次生成的 token 用量（多次工具调用请求累加；ROADMAP Q5 度量） */
+  let usage: TokenUsage | undefined
+
   // 上限放宽到 12：一轮可能并行发多个 tool_calls，每次请求算一步。
   // 每步请求 90s 超时 + 可被用户终止（外部 signal），避免“一直生成”无反馈
   for (let step = 0; step < 12; step++) {
@@ -212,6 +223,14 @@ export async function generateSlotContent(
     }
     const data = (await res.json()) as {
       choices?: { message?: { content?: unknown; tool_calls?: { id: string; function: { name: string; arguments: string } }[] } }[]
+      usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number }
+    }
+    if (data.usage) {
+      usage = {
+        promptTokens: (usage?.promptTokens ?? 0) + (data.usage.prompt_tokens ?? 0),
+        completionTokens: (usage?.completionTokens ?? 0) + (data.usage.completion_tokens ?? 0),
+        totalTokens: (usage?.totalTokens ?? 0) + (data.usage.total_tokens ?? 0)
+      }
     }
     const msg = data.choices?.[0]?.message
     if (!msg) throw new Error('AI 返回了空响应')
@@ -219,7 +238,7 @@ export async function generateSlotContent(
     // 无工具调用 → 拿到正文，结束
     if (!msg.tool_calls?.length) {
       const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content ?? '')
-      return { content }
+      return { content, usage }
     }
 
     // 有工具调用 → 本地执行 → 回传结果继续
@@ -251,12 +270,21 @@ export async function generateSlotContent(
   if (!finalRes.ok) throw new Error(`AI 接口错误 ${finalRes.status}`)
   const finalData = (await finalRes.json()) as {
     choices?: { message?: { content?: unknown } }[]
+    usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number }
+  }
+  if (finalData.usage) {
+    usage = {
+      promptTokens: (usage?.promptTokens ?? 0) + (finalData.usage.prompt_tokens ?? 0),
+      completionTokens: (usage?.completionTokens ?? 0) + (finalData.usage.completion_tokens ?? 0),
+      totalTokens: (usage?.totalTokens ?? 0) + (finalData.usage.total_tokens ?? 0)
+    }
   }
   const finalContent = finalData.choices?.[0]?.message?.content
   return {
     content:
       typeof finalContent === 'string' && finalContent.trim()
         ? finalContent
-        : '（生成中断：模型连续调用工具未能完成内容，请重试或减少该槽位的工具）'
+        : '（生成中断：模型连续调用工具未能完成内容，请重试或减少该槽位的工具）',
+    usage
   }
 }

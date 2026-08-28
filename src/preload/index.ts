@@ -16,7 +16,7 @@ const api = {
     slotIndex: number,
     sources: InfoSource[],
     estHeight: number
-  ): Promise<{ content: string }> =>
+  ): Promise<{ content: string; usage?: { promptTokens: number; completionTokens: number; totalTokens: number } }> =>
     ipcRenderer.invoke(
       'ai:generate-slot',
       generationId,

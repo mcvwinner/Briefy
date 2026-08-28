@@ -2,6 +2,14 @@
 
 本项目的所有显著变更记录于此。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [0.15.0] - 2026-08-28
+
+### 新增（ROADMAP Q5 量 · 质量度量最小层）
+
+- **Token 用量度量**：主进程 AI 响应的 usage 逐请求累加，e2e 报告输出每期"输入/输出/总计"——为 Q2 编辑部三段式的成本评估提供基线（新样例实测 28126 tokens，旧慢源样例 255379）；
+- **e2e 质量检查**：生成完成后自动断言——空槽（FAIL）、字数超限（WARN，上限 +25% 容差）、槽间内容 3-gram 相似度粗检（WARN，>35% 疑似重复）、来源署名一致性（FAIL，逐 DOM 槽位核对挂载状态）；
+- **快速测试样例**：新增 `C:\Users\sr291\Desktop\test_data\测试报刊.briefy`（快源：quotes/books.toscrape、example.com），覆盖双页/多角色/控件/无源场景；e2e 实测 7/7 生成、质量零问题、导出 690KB，全程 token 仅为旧慢源样例的 11%。
+
 ## [0.14.0] - 2026-08-28
 
 ### 新增（ROADMAP Q1 准 · 事实与来源）

@@ -62,7 +62,7 @@ declare global {
         slotIndex: number,
         sources: InfoSource[],
         estHeight: number
-      ): Promise<{ content: string }>
+      ): Promise<{ content: string; usage?: { promptTokens: number; completionTokens: number; totalTokens: number } }>
       cancelGeneration(generationId: string): Promise<boolean>
       devExportState(): Promise<unknown>
       saveDoc(doc: LayoutDoc): Promise<string | null>
@@ -195,7 +195,10 @@ function App(): React.JSX.Element {
     /** 单槽看门狗：超时中止该任务并报错，worker 继续下一任务（防个别任务卡死拖住全局队列）。
      *  超时后调用 cancelGeneration 释放主进程任务；若已正常完成则无效无害 */
     const SLOT_TIMEOUT_MS = 180_000
-    const callGenerate = (): Promise<{ content: string }> => {
+    const callGenerate = (): Promise<{
+      content: string
+      usage?: { promptTokens: number; completionTokens: number; totalTokens: number }
+    }> => {
       let timer: ReturnType<typeof setTimeout> | undefined
       const watchdog = new Promise<never>((_, reject) => {
         timer = setTimeout(
@@ -228,7 +231,18 @@ function App(): React.JSX.Element {
       let content: string | undefined
       for (let attempt = 0; attempt < 2 && content === undefined; attempt++) {
         try {
-          content = (await callGenerate()).content
+          const result = await callGenerate()
+          content = result.content
+          // token 用量汇总（ROADMAP Q5 度量；重试时累加不丢）
+          if (result.usage) {
+            const w = window as unknown as { __briefyUsage?: { promptTokens: number; completionTokens: number; totalTokens: number } }
+            const prev = w.__briefyUsage ?? { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
+            w.__briefyUsage = {
+              promptTokens: prev.promptTokens + result.usage.promptTokens,
+              completionTokens: prev.completionTokens + result.usage.completionTokens,
+              totalTokens: prev.totalTokens + result.usage.totalTokens
+            }
+          }
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err)
           // 用户主动终止：复位槽位，不重试不报错

@@ -114,19 +114,84 @@ while (Date.now() < deadline) {
 }
 if (Date.now() >= deadline) fail('总超时：生成未在时限内完成')
 
-// ---- 4. 统计结果 ----
+// ---- 4. 统计结果 + 质量报告（ROADMAP Q5 最小层） ----
 const result = await cdp.evalJs(`(() => {
   const doc = window.__briefyGetDoc()
   const slots = doc.pages.flatMap(p => p.slots)
   return {
     total: slots.length,
     done: slots.filter(s => s.status === 'done').length,
-    error: slots.filter(s => s.status === 'error').map(s => ({ role: s.role, msg: (s.content ?? '').slice(0, 200) }))
+    error: slots.filter(s => s.status === 'error').map(s => ({ role: s.role, msg: (s.content ?? '').slice(0, 200) })),
+    quality: slots.filter(s => s.status === 'done').map(s => ({
+      role: s.role,
+      len: (s.content ?? '').replace(/\\s+/g, '').length,
+      limit: Math.round(s.estHeight * 4.5),
+      hasSource: (s.sources?.length ?? 0) > 0,
+      content: s.content ?? ''
+    })),
+    usage: window.__briefyUsage ?? null
   }
 })()`)
 log(`生成结果：${result.done}/${result.total} 成功`)
 if (result.error.length > 0) {
   console.error('[e2e] 失败槽位：', JSON.stringify(result.error, null, 2))
+}
+
+/** 中文 3-gram Jaccard 相似度 */
+function trigrams(text) {
+  const t = text.replace(/\s+/g, '')
+  const set = new Set()
+  for (let i = 0; i < t.length - 2; i++) set.add(t.slice(i, i + 3))
+  return set
+}
+function similarity(a, b) {
+  const A = trigrams(a)
+  const B = trigrams(b)
+  if (A.size === 0 || B.size === 0) return 0
+  let inter = 0
+  for (const g of A) if (B.has(g)) inter++
+  return inter / (A.size + B.size - inter)
+}
+
+const q = result.quality
+const issues = []
+// 空内容
+for (const s of q) if (s.len === 0) issues.push(`[FAIL] ${s.role}：内容为空`)
+// 字数超限（上限 25% 容差）
+for (const s of q) if (s.len > s.limit * 1.25) issues.push(`[WARN] ${s.role}：字数 ${s.len} 超上限 ${s.limit}（+25% 容差后仍超）`)
+// 槽间相似度粗检（两两比对，> 0.35 视为疑似重复）
+for (let i = 0; i < q.length; i++) {
+  for (let j = i + 1; j < q.length; j++) {
+    const sim = similarity(q[i].content, q[j].content)
+    if (sim > 0.35) issues.push(`[WARN] ${q[i].role} 与 ${q[j].role} 内容相似度 ${(sim * 100).toFixed(0)}%（疑似重复选题）`)
+  }
+}
+// 来源缺失：逐 DOM 槽位核对（"挂源且已完成"与"是否渲染署名"必须一致；只比当前页可见槽位）
+const sourceMismatch = await cdp.evalJs(`(() => {
+  const doc = window.__briefyGetDoc()
+  const byId = new Map(doc.pages.flatMap(p => p.slots).map(s => [s.id, s]))
+  let bad = 0
+  document.querySelectorAll('[data-slot-id]').forEach(el => {
+    const s = byId.get(el.getAttribute('data-slot-id'))
+    if (!s || s.status !== 'done') return
+    const should = (s.sources?.length ?? 0) > 0
+    const has = !!el.querySelector('.slot-sources')
+    if (should !== has) bad++
+  })
+  return bad
+})()`)
+if (sourceMismatch > 0) {
+  issues.push(`[FAIL] ${sourceMismatch} 个槽位的来源署名与挂载状态不一致`)
+}
+// 度量输出
+if (result.usage) {
+  log(`Token 用量：输入 ${result.usage.promptTokens} + 输出 ${result.usage.completionTokens} = ${result.usage.totalTokens}`)
+}
+if (issues.length > 0) {
+  console.log('[e2e] 质量检查：')
+  issues.forEach((i) => console.log('  ', i))
+} else {
+  log('质量检查：无问题（无空槽/未超限/无重复/署名齐全）')
 }
 
 // ---- 5. 导出 PDF（dev 自动落盘） ----
