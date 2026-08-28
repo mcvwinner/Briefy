@@ -25,6 +25,19 @@ export async function tavilySearch(apiKey: string, query: string): Promise<Searc
   return data.results ?? []
 }
 
+/** Tavily 图片搜索（ROADMAP Q3 配图闭环）：返回图片 URL 列表 */
+export async function tavilyImageSearch(apiKey: string, query: string): Promise<string[]> {
+  const res = await fetch('https://api.tavily.com/search', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ api_key: apiKey, query, max_results: 3, include_images: true }),
+    signal: AbortSignal.timeout(20_000)
+  })
+  if (!res.ok) throw new Error(`Tavily 图片搜索失败 (${res.status})`)
+  const data = (await res.json()) as { images?: string[] }
+  return data.images ?? []
+}
+
 /** 剥除 HTML 标签与脚本样式，取近似正文 */
 function extractText(html: string): string {
   return html

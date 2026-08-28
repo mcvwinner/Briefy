@@ -25,6 +25,8 @@ export interface LayoutPrefs {
   lineHeight?: number
   /** 主题色（品牌色 hex，默认 Fluent 品牌蓝） */
   accentColor?: string
+  /** 正文分栏（ROADMAP Q3）：body 槽位文字多栏流式；1 = 单栏（默认） */
+  columns?: number
   /** 黑白优先：灰阶渲染（兼容黑白打印机，导出 PDF 同样灰阶） */
   grayscale?: boolean
   /** 页眉页脚（P6c）：报头/日期/页码，绘制在页边距区不占内容高 */

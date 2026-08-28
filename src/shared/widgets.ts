@@ -4,7 +4,7 @@
  */
 
 /** 控件标识（与标记名一致：:::stat → stat） */
-export type WidgetId = 'stat' | 'quote' | 'info' | 'timeline' | 'image' | 'qrcode' | 'toc'
+export type WidgetId = 'stat' | 'quote' | 'info' | 'timeline' | 'image' | 'qrcode' | 'toc' | 'chart'
 
 /** 控件参数（键值对，渲染组件与用户表单共用） */
 export type WidgetParams = Record<string, string>
@@ -65,9 +65,9 @@ export const WIDGET_REGISTRY: Record<WidgetId, WidgetDef> = {
   image: {
     id: 'image',
     name: '配图',
-    usage: '在正文中插入一张配图（必须是真实可访问的图片 URL，不知道有效 URL 时不要使用此控件）。',
+    usage: '为文章配一张图。你只负责描述想要什么画面（query），系统会自动搜索真实图片——不要自己编造 URL。不确定时不用此控件。',
     params: {
-      url: { desc: '图片直链（https 开头，以 .png/.jpg/.webp 结尾优先）', example: 'https://example.com/cover.jpg' },
+      query: { desc: '图片内容意图（英文或中文关键词，具体画面效果更好）', example: 'press conference technology' },
       caption: { desc: '图注（一句话）', example: '发布会现场' }
     }
   },
@@ -89,6 +89,16 @@ export const WIDGET_REGISTRY: Record<WidgetId, WidgetDef> = {
         desc: '条目列表，格式：标题|一句话提要，多条用分号;分隔',
         example: 'AI 评测大战|四大阵营同日竞速; Rust 新里程碑|协议栈完成审计'
       }
+    }
+  },
+  chart: {
+    id: 'chart',
+    name: '数据图表',
+    usage: '把结构化数据绘成图表（柱状/折线/饼图），适合数据对比与趋势。数据槽位优先使用。',
+    params: {
+      type: { desc: '图表类型：bar/line/pie', example: 'bar' },
+      title: { desc: '图表标题', example: '今日热门仓库新增星数' },
+      data: { desc: '数据列表，格式：标签|数值，多条用分号;分隔（数值为纯数字）', example: 'Rust|1397; TS|795; Go|520' }
     }
   }
 }

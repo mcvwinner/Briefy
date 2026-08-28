@@ -152,7 +152,16 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* 配图（:::image） */
+/* 配图（:::image）：回填后的图片；未回填时的占位提示 */
+.widget-image-pending {
+  margin: 6px 0;
+  padding: 8px 10px;
+  border: 1px dashed #bbb;
+  border-radius: 4px;
+  font-size: 9pt;
+  color: #757575;
+  background: #f7f7f7;
+}
 .widget-image {
   margin: 6px 0;
 }
@@ -219,6 +228,42 @@
 }
 .widget-toc-desc {
   color: #444;
+}
+
+/* 数据图表（:::chart）：SVG 自绘 */
+.widget-chart {
+  margin: 6px 0;
+  padding: 6px;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+}
+.widget-chart-title {
+  font-weight: 600;
+  font-size: 9.5pt;
+  margin-bottom: 4px;
+}
+.widget-chart-body {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.widget-chart-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 8.5pt;
+  color: #444;
+}
+.widget-chart-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.widget-chart-legend-item span {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  display: inline-block;
 }
 
 /* 来源署名（ROADMAP Q1）：槽位尾部小字，吃版式字号与灰阶 */

@@ -2,7 +2,7 @@ import { z } from 'zod'
 import type { AiSettings } from '../shared/settings'
 import type { ToolId } from '../shared/layout'
 import { ROLE_DEFS, type SlotRole } from '../shared/layout'
-import { tavilySearch, fetchPageText } from './tools'
+import { tavilySearch, tavilyImageSearch, fetchPageText } from './tools'
 import { buildWidgetPromptSection } from '../shared/widgets'
 
 /** 语篇上下文：整份报纸的槽位大纲（App 层构建，含角色名与职责） */
@@ -293,7 +293,9 @@ export async function generateSlotContent(
     const msg = {
       role: 'assistant' as const,
       content,
-      ...(toolAcc.length > 0 ? { tool_calls: toolAcc.filter((t) => t.function.name) } : {})
+      ...(toolAcc.length > 0
+        ? { tool_calls: toolAcc.filter((t) => t.function.name).map((t) => ({ type: 'function' as const, ...t })) }
+        : {})
     }
     if (!msg.content && (!msg.tool_calls || msg.tool_calls.length === 0)) throw new Error('AI 返回了空响应')
 
@@ -461,6 +463,44 @@ export interface ReviewComment {
   index: number
   problem: string
   instruction: string
+}
+
+/**
+ * 配图闭环（ROADMAP Q3）：把 AI 输出的 :::image{query:"意图"} 用 Tavily 图搜回填真实 URL。
+ * 逐个处理：搜到 → url=首图；搜不到/无 Key → 移除该控件行（宁缺毋滥，不留破图占位）。
+ * 失败不抛异常（配图是增强项，失败不影响正文）。
+ */
+export async function resolveImageQueries(content: string, tavilyKey: string): Promise<string> {
+  if (!tavilyKey || !content.includes(':::image')) return content
+  const lines = content.split('\n')
+  const out: string[] = []
+  for (const line of lines) {
+    const trimmed = line.trim()
+    const match = /^:::image\{(.*)\}$/.exec(trimmed)
+    if (!match) {
+      out.push(line)
+      continue
+    }
+    // 解析控件参数（k:"v" 键值对）
+    const params: Record<string, string> = {}
+    const kv = /(\w+):"((?:[^"\\]|\\.)*)"/g
+    let m: RegExpExecArray | null
+    while ((m = kv.exec(match[1])) !== null) params[m[1]] = m[2].replace(/\\"/g, '"')
+    const query = params.query?.trim()
+    if (!query) continue // 无意图：丢弃该行
+    try {
+      const images = await tavilyImageSearch(tavilyKey, query)
+      const url = images[0]
+      if (url) {
+        const caption = params.caption ? ` caption:"${params.caption}"` : ''
+        out.push(`:::image{url:"${url}"${caption}}`)
+      }
+      // 搜不到图：丢弃该行（宁缺毋滥）
+    } catch {
+      // 搜索失败：丢弃该行，不影响正文
+    }
+  }
+  return out.join('\n')
 }
 
 /**

@@ -267,6 +267,14 @@ function SettingsDialog({ open, settings, onClose, onSaved }: SettingsDialogProp
                 />
               </div>
             </Field>
+            <Field label="正文分栏（body 槽位文字多栏流式，1–3 栏，默认 1 = 单栏）">
+              <Input
+                type="number"
+                value={layout.columns?.toString() ?? ''}
+                placeholder="1"
+                onChange={(_, d) => numField('columns', d.value)}
+              />
+            </Field>
             <Checkbox
               label="黑白优先（灰阶渲染，兼容黑白打印机；导出 PDF 同样灰阶）"
               checked={layout.grayscale === true}

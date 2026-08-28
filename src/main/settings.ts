@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, nativeTheme } from 'electron'
 import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { DEFAULT_SETTINGS, type AiSettings, type InfoSource, type ThemeMode } from '../shared/settings'
-import { generateSlotContent, planIssue, reviewIssue } from './ai'
+import { generateSlotContent, planIssue, reviewIssue, resolveImageQueries } from './ai'
 import type { DocContext } from './ai'
 import { fetchPageText } from './tools'
 import type { ToolId } from '../shared/layout'
@@ -104,7 +104,7 @@ export function registerSettingsIpc(): void {
             sourceContents.push({ name: src.name, note: src.note, text: `（此源抓取失败：${reason}）` })
           }
         }
-        return await generateSlotContent(
+        const generated = await generateSlotContent(
           settings,
           prompt,
           role,
@@ -117,6 +117,9 @@ export function registerSettingsIpc(): void {
           estHeight,
           (delta) => _event.sender.send('ai:heartbeat', generationId, delta)
         )
+        // 配图闭环（ROADMAP Q3）：AI 给意图，系统用 Tavily 图搜回填真实 URL（失败不影响正文）
+        const content = await resolveImageQueries(generated.content, settings.tavilyKey)
+        return { content, usage: generated.usage }
       } finally {
         activeGenerations.delete(generationId)
       }

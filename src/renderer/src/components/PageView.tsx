@@ -259,6 +259,14 @@ function PageView({ page, selectedSlotId, onSelectSlot, onOverflow, prefs, custo
   const fontSize = prefs?.fontSizePt !== undefined ? `${Math.min(14, Math.max(8, prefs.fontSizePt))}pt` : undefined
   const lineHeight = prefs?.lineHeight !== undefined ? `${Math.min(2, Math.max(1.2, prefs.lineHeight))}` : undefined
   const filter = prefs?.grayscale ? 'grayscale(1)' : undefined
+  // 多栏正文流（ROADMAP Q3）：正文槽位文字分栏（1–3 栏，默认 1 = 单栏）
+  const columns = prefs?.columns !== undefined ? Math.min(3, Math.max(1, Math.round(prefs.columns))) : 1
+  const bodyStyle = {
+    fontFamily: font,
+    fontSize,
+    lineHeight,
+    ...(columns > 1 ? { columnCount: columns, columnGap: '6mm', columnRule: '1px solid #ddd' } : {})
+  }
 
   const renderSlot = (slot: Slot): React.JSX.Element => (
     <SlotBox
@@ -270,7 +278,7 @@ function PageView({ page, selectedSlotId, onSelectSlot, onOverflow, prefs, custo
       onOverflow={onOverflow}
     >
       {slot.status === 'done' && slot.content ? (
-        <div className={styles.slotContent} style={{ fontFamily: font, fontSize, lineHeight }}>
+        <div className={styles.slotContent} style={slot.role === 'body' && slot.kind === 'text' ? bodyStyle : { fontFamily: font, fontSize, lineHeight }}>
           <SlotContent kind={slot.kind} content={slot.content} />
           {/* 来源署名（ROADMAP Q1）：挂在槽位上的源即视为本期事实依据 */}
           {(slot.sources?.length ?? 0) > 0 && (

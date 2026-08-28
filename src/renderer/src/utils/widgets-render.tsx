@@ -65,9 +65,12 @@ function Timeline({ params }: { params: Record<string, string> }): ReactNode {
   )
 }
 
-/** 配图：URL 直链 + 图注（URL 由 AI/用户提供，需可公网访问） */
+/** 配图：AI 只给意图（query），生成后由主进程用 Tavily 图搜回填真实 URL。
+ *  未回填（无 url）时显示占位提示，不渲染破图 */
 function ImageBlock({ params }: { params: Record<string, string> }): ReactNode {
-  if (!params.url) return null
+  if (!params.url) {
+    return <div className="widget-image-pending">📷 配图待获取：{renderInlineMarkdown(params.query ?? params.caption ?? '')}</div>
+  }
   return (
     <figure className="widget-image">
       <img src={params.url} alt={params.caption ?? ''} loading="lazy" />
@@ -110,13 +113,125 @@ function TocList({ params }: { params: Record<string, string> }): ReactNode {
   )
 }
 
-const WIDGET_RENDERERS: Record<WidgetId, (p: { params: Record<string, string> }) => ReactNode> = {  stat: StatCard,
+/** 数据图表：纯 SVG 自绘（柱/折/饼，零外部依赖，ROADMAP Q3） */
+function Chart({ params }: { params: Record<string, string> }): ReactNode {
+  const rows = (params.data ?? '')
+    .split(';')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((s) => {
+      const [label, ...rest] = s.split('|')
+      return { label: (label ?? '').trim(), value: Number(rest.join('|').trim()) || 0 }
+    })
+    .filter((r) => r.label)
+  if (rows.length === 0) return null
+  const type = params.type === 'line' || params.type === 'pie' ? params.type : 'bar'
+  const W = 320
+  const H = 180
+  const pad = 28
+  const max = Math.max(...rows.map((r) => r.value), 1)
+  const palette = ['#0f6cbd', '#c50f1f', '#0e700e', '#6b3fa0', '#8a6142', '#ca5010']
+  const color = (i: number): string => palette[i % palette.length]
+  const title = params.title ? <div className="widget-chart-title">{renderInlineMarkdown(params.title)}</div> : null
+
+  if (type === 'pie') {
+    const total = rows.reduce((s, r) => s + r.value, 0) || 1
+    let acc = -Math.PI / 2
+    const slices = rows.map((r, i) => {
+      const ang = (r.value / total) * Math.PI * 2
+      const x1 = Math.cos(acc)
+      const y1 = Math.sin(acc)
+      acc += ang
+      const x2 = Math.cos(acc)
+      const y2 = Math.sin(acc)
+      const large = ang > Math.PI ? 1 : 0
+      return {
+        d: `M 0 0 L ${x1 * 70} ${y1 * 70} A 70 70 0 ${large} 1 ${x2 * 70} ${y2 * 70} Z`,
+        color: color(i),
+        label: r.label,
+        pct: Math.round((r.value / total) * 100)
+      }
+    })
+    return (
+      <div className="widget-chart">
+        {title}
+        <div className="widget-chart-body">
+          <svg viewBox="-80 -80 160 160" width={130} height={130}>
+            {slices.map((s, i) => (
+              <path key={i} d={s.d} fill={s.color} />
+            ))}
+          </svg>
+          <div className="widget-chart-legend">
+            {slices.map((s, i) => (
+              <div key={i} className="widget-chart-legend-item">
+                <span style={{ backgroundColor: s.color }} />
+                {s.label} {s.pct}%
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (type === 'line') {
+    const step = rows.length > 1 ? (W - pad * 2) / (rows.length - 1) : 0
+    const pts = rows.map((r, i) => [pad + i * step, H - pad - (r.value / max) * (H - pad * 2)])
+    return (
+      <div className="widget-chart">
+        {title}
+        <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', maxWidth: W }}>
+          {rows.map((r, i) => (
+            <g key={i}>
+              <circle cx={pts[i][0]} cy={pts[i][1]} r={3} fill={color(i)} />
+              <text x={pts[i][0]} y={H - pad + 12} fontSize={8} textAnchor="middle" fill="#666">
+                {r.label}
+              </text>
+              <text x={pts[i][0]} y={pts[i][1] - 8} fontSize={8} textAnchor="middle" fill="#333">
+                {r.value}
+              </text>
+            </g>
+          ))}
+          <polyline points={pts.map((p) => p.join(',')).join(' ')} fill="none" stroke="#0f6cbd" strokeWidth={2} />
+        </svg>
+      </div>
+    )
+  }
+
+  // bar（默认）
+  const bw = (W - pad * 2) / rows.length
+  return (
+    <div className="widget-chart">
+      {title}
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', maxWidth: W }}>
+        {rows.map((r, i) => {
+          const h = (r.value / max) * (H - pad * 2)
+          return (
+            <g key={i}>
+              <rect x={pad + i * bw + bw * 0.15} y={H - pad - h} width={bw * 0.7} height={h} fill={color(i)} rx={2} />
+              <text x={pad + i * bw + bw / 2} y={H - pad - h - 5} fontSize={8} textAnchor="middle" fill="#333">
+                {r.value}
+              </text>
+              <text x={pad + i * bw + bw / 2} y={H - pad + 12} fontSize={8} textAnchor="middle" fill="#666">
+                {r.label}
+              </text>
+            </g>
+          )
+        })}
+      </svg>
+    </div>
+  )
+}
+
+const WIDGET_RENDERERS: Record<WidgetId, (p: { params: Record<string, string> }) => ReactNode> = {
+  stat: StatCard,
   quote: QuoteBlock,
   info: InfoBox,
   timeline: Timeline,
   image: ImageBlock,
   qrcode: QrCode,
-  toc: TocList
+  toc: TocList,
+  chart: Chart
 }
 
 /** 内容节点流 → React 节点（段落走行内 MD，控件走注册表） */
