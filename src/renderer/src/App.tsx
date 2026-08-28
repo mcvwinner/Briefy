@@ -39,6 +39,7 @@ import PageTabs from './components/PageTabs'
 import PropertiesPanel from './components/PropertiesPanel'
 import StatusBar from './components/StatusBar'
 import SettingsDialog from './components/SettingsDialog'
+import InputDialog from './components/InputDialog'
 import { useLayout } from './hooks/useLayout'
 import type { AiSettings, ThemeMode } from '../../shared/settings'
 import type { LayoutDoc, Slot, SlotRole } from '../../shared/layout'
@@ -53,6 +54,7 @@ declare global {
       saveSettings(settings: AiSettings): Promise<void>
       generateSlot(
         prompt: string,
+        role: string,
         kind: string,
         tools: string[],
         docContext: unknown,
@@ -127,6 +129,13 @@ function SlotContentRender({ slot }: { slot: Slot }): React.JSX.Element {
 function App(): React.JSX.Element {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settings, setSettings] = useState<AiSettings | null>(null)
+  // 输入对话框状态（Electron 无 window.prompt，用此替代）
+  const [inputDialog, setInputDialog] = useState<{
+    title: string
+    label: string
+    initialValue: string
+    onConfirm: (value: string) => void
+  } | null>(null)
 
   const layout = useLayout()
   const styles = useStyles()
@@ -196,6 +205,7 @@ function App(): React.JSX.Element {
           try {
             const { content } = await window.briefy!.generateSlot(
               task.slot.prompt,
+              ROLE_DEFS[task.slot.role].name,
               task.slot.kind,
               task.slot.tools ?? ['getCurrentTime'],
               docContext,
@@ -253,10 +263,8 @@ function App(): React.JSX.Element {
   }, [refreshUserPresets])
 
   /** 把当前版面另存为预设（含提示词与工具配置，剥离生成内容） */
-  const saveAsPreset = async (): Promise<void> => {
-    if (!window.briefy) return
-    const name = window.prompt('给这个预设起个名字：')
-    if (!name?.trim()) return
+  const saveAsPreset = async (name: string): Promise<void> => {
+    if (!window.briefy || !name.trim()) return
     const preset: UserPreset = {
       version: 2,
       name: name.trim(),
@@ -264,8 +272,8 @@ function App(): React.JSX.Element {
       pages: layout.doc.pages.map((p) => ({ slots: toPresetSlots(p.slots) }))
     }
     const result = await window.briefy.saveUserPreset(preset)
-    if (result === 'saved') void refreshUserPresets()
-    else window.alert(result === 'name-conflict' ? '同名预设已存在' : '保存失败')
+    void refreshUserPresets()
+    if (result === 'name-conflict') window.alert('同名预设已存在，已覆盖保存')
   }
 
   /** 套用用户预设 */
@@ -283,9 +291,8 @@ function App(): React.JSX.Element {
     void refreshUserPresets()
   }
 
-  const renameUserPreset = async (oldName: string): Promise<void> => {
-    const newName = window.prompt('新名称：', oldName)
-    if (!newName?.trim() || newName === oldName) return
+  const renameUserPreset = async (oldName: string, newName: string): Promise<void> => {
+    if (!newName.trim() || newName === oldName) return
     await window.briefy?.renameUserPreset(oldName, newName.trim())
     void refreshUserPresets()
   }
@@ -388,7 +395,17 @@ function App(): React.JSX.Element {
                 <MenuDivider />
                 <MenuGroup>
                   <MenuGroupHeader>我的预设</MenuGroupHeader>
-                  <MenuItem icon={<SaveRegular />} onClick={() => void saveAsPreset()}>
+                  <MenuItem
+                    icon={<SaveRegular />}
+                    onClick={() =>
+                      setInputDialog({
+                        title: '保存为预设',
+                        label: '预设名称',
+                        initialValue: layout.doc.title,
+                        onConfirm: (name) => void saveAsPreset(name)
+                      })
+                    }
+                  >
                     把当前版面存为预设…
                   </MenuItem>
                   <MenuItem icon={<ArrowImportRegular />} onClick={() => void importUserPreset()}>
@@ -404,7 +421,12 @@ function App(): React.JSX.Element {
                           aria-label={`重命名 ${preset.name}`}
                           onClick={(e) => {
                             e.stopPropagation()
-                            void renameUserPreset(preset.name)
+                            setInputDialog({
+                              title: '重命名预设',
+                              label: '新名称',
+                              initialValue: preset.name,
+                              onConfirm: (newName) => void renameUserPreset(preset.name, newName)
+                            })
                           }}
                         >
                           <EditRegular fontSize={14} />
@@ -506,13 +528,25 @@ function App(): React.JSX.Element {
           onRemove={layout.removePage}
         />
 
-        <StatusBar version="0.8.0" hasApiKey={hasApiKey} />
+        <StatusBar version="0.8.1" hasApiKey={hasApiKey} />
 
         <SettingsDialog
           open={settingsOpen}
           settings={settings}
           onClose={() => setSettingsOpen(false)}
           onSaved={(updated) => setSettings(updated)}
+        />
+
+        <InputDialog
+          open={inputDialog !== null}
+          title={inputDialog?.title ?? ''}
+          label={inputDialog?.label ?? ''}
+          initialValue={inputDialog?.initialValue ?? ''}
+          onConfirm={(value) => {
+            inputDialog?.onConfirm(value)
+            setInputDialog(null)
+          }}
+          onCancel={() => setInputDialog(null)}
         />
       </div>
     </FluentProvider>

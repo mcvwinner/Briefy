@@ -2,6 +2,17 @@
 
 本项目的所有显著变更记录于此。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [0.8.1] - 2026-08-28
+
+### 修复
+
+- **生成报错**：v0.8.0 重构时 preload 桥函数 `generateBlock` 未同步改名（主进程已换 `ai:generate-slot` 并新增 role 参数），导致点击"生成"必然报桥函数不存在；已同步并静态核对全部 13 个 channel；
+- **另存为预设无响应**：`window.prompt()` 在 Electron 中不受支持（原生抛错），另存为/重命名预设的输入改为 Fluent Dialog（InputDialog 组件）；同名预设改为覆盖并提示。
+
+### 工程化
+
+- 新增 `scripts/check-ipc.mjs`：构建后自动校验 preload 全部 IPC channel 在主进程都有注册，断桥即构建失败——防止此类问题再次静默漏网。
+
 ## [0.8.0] - 2026-08-28
 
 ### 重构（架构 v2 第四阶段：槽位化版式，推翻 Block 体系）
