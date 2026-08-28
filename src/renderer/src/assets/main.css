@@ -1,14 +1,41 @@
-:root {
-  --bg: #f5f5f5;
-  --surface: #ffffff;
-  --accent: #0f6cbd; /* Fluent brand primary (Teams/Office 蓝) */
-  --border: #d1d1d1;
-  --text: #242424;
-  --text-muted: #616161;
-}
+/*
+ * Briefy 全局样式。
+ * 原则：颜色一律用 FluentProvider 注入的 CSS 变量（--colorNeutral* 等），
+ * 亮/暗主题自动切换，禁止硬编码十六进制色。
+ * A4 纸面是"纸张"语义，固定白底黑字（暗色下也应如此）。
+ */
 
 * {
   box-sizing: border-box;
+}
+
+/* ---------- 主题感知（系统级控件跟随） ---------- */
+.theme-dark {
+  color-scheme: dark;
+}
+
+.theme-light {
+  color-scheme: light;
+}
+
+/* ---------- 滚动条（跟随主题） ---------- */
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+.theme-dark ::-webkit-scrollbar-thumb {
+  background-color: var(--colorNeutralStroke1, #565656);
+  border-radius: 6px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+.theme-light ::-webkit-scrollbar-thumb {
+  background-color: var(--colorNeutralStroke1, #c7c7c7);
+  border-radius: 6px;
+  border: 3px solid transparent;
+  background-clip: content-box;
 }
 
 /* ---------- 区块内表格渲染 ---------- */
@@ -21,14 +48,14 @@
 
 .block-table th,
 .block-table td {
-  border: 1px solid #c7c7c7;
+  border: 1px solid var(--colorNeutralStroke2, #d1d1d1);
   padding: 3px 5px;
   text-align: left;
   word-break: break-word;
 }
 
 .block-table th {
-  background: #f0f0f0;
+  background: var(--colorNeutralBackground3, #f0f0f0);
   font-weight: 600;
 }
 
@@ -42,8 +69,8 @@
   margin: 8px 0 4px;
   font-size: 11pt;
   font-weight: 700;
-  color: #0f6cbd;
-  border-bottom: 1px solid #dde1e6;
+  color: var(--colorBrandForeground1, #0f6cbd);
+  border-bottom: 1px solid var(--colorNeutralStroke2, #dde1e6);
   padding-bottom: 2px;
 }
 
@@ -53,21 +80,21 @@
   line-height: 0.85;
   padding: 2px 6px 0 0;
   font-weight: 700;
-  color: #0f6cbd;
+  color: var(--colorBrandForeground1, #0f6cbd);
 }
 
 /* ---------- 预制控件 ---------- */
 .widget-stat {
-  border: 1px solid #dde1e6;
+  border: 1px solid var(--colorNeutralStroke2, #dde1e6);
   border-radius: 6px;
   padding: 8px 10px;
   margin: 6px 0;
-  background: #fafbfc;
+  background: var(--colorNeutralBackground3, #fafbfc);
 }
 
 .widget-stat-label {
   font-size: 9pt;
-  color: #616161;
+  color: var(--colorNeutralForeground2, #616161);
 }
 
 .widget-stat-value {
@@ -78,14 +105,14 @@
 
 .widget-stat-note {
   font-size: 8.5pt;
-  color: #616161;
+  color: var(--colorNeutralForeground2, #616161);
 }
 
 .widget-quote {
   margin: 6px 0;
   padding: 4px 10px;
-  border-left: 3px solid #0f6cbd;
-  color: #424242;
+  border-left: 3px solid var(--colorBrandForeground1, #0f6cbd);
+  color: var(--colorNeutralForeground2, #424242);
 }
 
 .widget-quote-text {
@@ -96,7 +123,7 @@
 .widget-quote-source {
   margin-top: 2px;
   font-size: 8.5pt;
-  color: #616161;
+  color: var(--colorNeutralForeground2, #616161);
 }
 
 .widget-info {
@@ -121,7 +148,7 @@
 .widget-timeline-time {
   flex-shrink: 0;
   font-weight: 600;
-  color: #0f6cbd;
+  color: var(--colorBrandForeground1, #0f6cbd);
   font-variant-numeric: tabular-nums;
 }
 
@@ -129,189 +156,13 @@
 .print-view {
   position: relative;
   width: 210mm;
-  height: 297mm;
   background: #fff;
-}
-
-.print-block {
-  position: absolute;
-  overflow: hidden;
-  font-size: 10pt;
-  line-height: 1.5;
   color: #000;
 }
 
-/* ---------- 全局滚动条（跟随 Fluent 主题，暗色自动变色） ---------- */
-.theme-dark {
-  color-scheme: dark;
-}
-
-.theme-light {
-  color-scheme: light;
-}
-
-body ::-webkit-scrollbar {
-  width: 12px;
-  height: 12px;
-}
-
-.theme-dark body ::-webkit-scrollbar-thumb,
-.theme-dark ::-webkit-scrollbar-thumb {
-  background-color: #565656;
-  border-radius: 6px;
-  border: 3px solid transparent;
-  background-clip: content-box;
-}
-
-.theme-light body ::-webkit-scrollbar-thumb,
-.theme-light ::-webkit-scrollbar-thumb {
-  background-color: #c7c7c7;
-  border-radius: 6px;
-  border: 3px solid transparent;
-  background-clip: content-box;
-}
-
-body {
-  margin: 0;
-  font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
-  color: var(--text);
-  background: var(--bg);
-  user-select: none;
+.print-slot {
+  margin-bottom: 6mm;
+  font-size: 10pt;
+  line-height: 1.5;
   overflow: hidden;
-}
-
-.app {
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-}
-
-.toolbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  height: 44px;
-  padding: 0 8px;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-}
-
-.toolbar-group {
-  display: flex;
-  gap: 4px;
-}
-
-.tool-btn {
-  height: 30px;
-  padding: 0 12px;
-  border: none;
-  background: transparent;
-  font-size: 13px;
-  cursor: pointer;
-  border-radius: 4px;
-}
-
-.tool-btn:hover:not(:disabled) {
-  background: rgba(24, 90, 189, 0.1);
-  color: var(--accent);
-}
-
-.tool-btn:disabled {
-  color: #a0a0a0;
-  cursor: default;
-}
-
-.workspace {
-  flex: 1;
-  display: flex;
-  min-height: 0;
-}
-
-.canvas {
-  flex: 1;
-  overflow: auto;
-  padding: 32px;
-}
-
-/* ---------- A4 画布与区块 ---------- */
-.canvas-scroll {
-  flex: 1;
-  overflow: auto;
-  padding: 32px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 24px;
-}
-
-.a4-sheet {
-  position: relative;
-  background: #fff;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-  flex-shrink: 0;
-  /* 框选模式下显示十字光标 */
-}
-
-.block {
-  position: absolute;
-  background: rgba(24, 90, 189, 0.04);
-  border: 1px dashed #a0a0a0;
-  border-radius: 2px;
-  cursor: move;
-  overflow: visible;
-}
-
-.block-selected {
-  border: 2px solid var(--accent);
-  background: rgba(24, 90, 189, 0.07);
-}
-
-.block-label {
-  position: absolute;
-  top: 4px;
-  left: 6px;
-  font-size: 11px;
-  color: var(--text-muted);
-  pointer-events: none;
-  white-space: nowrap;
-  overflow: hidden;
-  max-width: calc(100% - 12px);
-}
-
-.handle {
-  position: absolute;
-  width: 10px;
-  height: 10px;
-  background: #fff;
-  border: 1px solid var(--accent);
-  border-radius: 50%;
-  z-index: 10;
-}
-
-.marquee {
-  position: absolute;
-  border: 1.5px dashed var(--accent);
-  background: rgba(24, 90, 189, 0.08);
-  pointer-events: none;
-}
-
-.delete-btn {
-  width: 100%;
-  padding: 6px;
-  margin-top: 8px;
-  border: 1px solid #d13438;
-  color: #d13438;
-  background: transparent;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 13px;
-}
-
-.delete-btn:hover {
-  background: rgba(209, 52, 56, 0.08);
-}
-
-.properties-panel {
-  /* 样式已迁移到 PropertiesPanel.tsx 的 makeStyles（Fluent tokens），此占位保留类名兼容 */
 }

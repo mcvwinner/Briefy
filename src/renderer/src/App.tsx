@@ -338,7 +338,9 @@ function App(): React.JSX.Element {
           {/* ---- 文件二级菜单：新建/打开/保存/导出 ---- */}
           <Menu>
             <MenuTrigger disableButtonEnhancement>
-              <ToolbarButton icon={<FolderOpenRegular />}>文件</ToolbarButton>
+              <Tooltip content="新建/打开/保存设计文件，导出 PDF" relationship="description">
+                <ToolbarButton icon={<FolderOpenRegular />}>文件</ToolbarButton>
+              </Tooltip>
             </MenuTrigger>
             <MenuPopover>
               <MenuList>
@@ -359,7 +361,9 @@ function App(): React.JSX.Element {
           </Menu>
           <Menu>
             <MenuTrigger disableButtonEnhancement>
-              <ToolbarButton icon={<AddSquareRegular />}>添加槽位</ToolbarButton>
+              <Tooltip content="向页面添加一个内容槽位：选角色（头条/正文/数据/快讯/提示框）即可，AI 按角色分工写作，高度随内容自适应" relationship="description">
+                <ToolbarButton icon={<AddSquareRegular />}>添加槽位</ToolbarButton>
+              </Tooltip>
             </MenuTrigger>
             <MenuPopover>
               <MenuList>
@@ -378,7 +382,9 @@ function App(): React.JSX.Element {
           </Menu>
           <Menu>
             <MenuTrigger disableButtonEnhancement>
-              <ToolbarButton icon={<AppsRegular />}>预设</ToolbarButton>
+              <Tooltip content="一键套用整套版面（槽位+提示词+工具）；也可把当前版面存为自己的预设" relationship="description">
+                <ToolbarButton icon={<AppsRegular />}>预设</ToolbarButton>
+              </Tooltip>
             </MenuTrigger>
             <MenuPopover>
               <MenuList>
@@ -461,7 +467,7 @@ function App(): React.JSX.Element {
               </MenuList>
             </MenuPopover>
           </Menu>
-          <Tooltip content="AI 生成所有内容块" relationship="description">
+          <Tooltip content="让 AI 填充全部槽位：按各槽位的角色与提示词并行写作；可在设置中配置模型与信息源" relationship="description">
             <ToolbarButton
               icon={<WandRegular />}
               disabled={!hasApiKey || generating}
@@ -471,7 +477,7 @@ function App(): React.JSX.Element {
               {generating ? '生成中…' : '生成'}
             </ToolbarButton>
           </Tooltip>
-          <Tooltip content={isDark ? '切换到亮色模式' : '切换到暗色模式'} relationship="description">
+          <Tooltip content={isDark ? '切换到亮色模式' : '切换到暗色模式（主题偏好会保存）'} relationship="description">
             <ToolbarButton
               icon={isDark ? <WeatherSunnyRegular /> : <WeatherMoonRegular />}
               onClick={() => void toggleTheme()}
@@ -479,7 +485,7 @@ function App(): React.JSX.Element {
               {isDark ? '亮色' : '暗色'}
             </ToolbarButton>
           </Tooltip>
-          <Tooltip content="配置 AI 服务" relationship="description">
+          <Tooltip content="配置 AI 服务（API Key/模型）、信息源、搜索 Key" relationship="description">
             <ToolbarButton
               icon={<SettingsRegular />}
               onClick={() => setSettingsOpen(true)}
@@ -532,7 +538,7 @@ function App(): React.JSX.Element {
           onRemove={layout.removePage}
         />
 
-        <StatusBar version="0.9.0" hasApiKey={hasApiKey} />
+        <StatusBar version="0.9.1" hasApiKey={hasApiKey} />
 
         <SettingsDialog
           open={settingsOpen}
