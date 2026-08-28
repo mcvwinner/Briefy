@@ -1,7 +1,7 @@
-import { app, BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow, nativeTheme, shell } from 'electron'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { registerSettingsIpc } from './settings'
+import { registerSettingsIpc, readSettings } from './settings'
 import { registerDocIpc } from './doc'
 import { registerExportIpc } from './export'
 import { registerUserPresetIpc } from './user-presets'
@@ -21,6 +21,8 @@ function createMainWindow(): void {
     height: 800,
     show: false,
     autoHideMenuBar: true,
+    // 跟随当前主题源设置窗口底色：避免暗色模式下亮色"白边一圈"
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#141414' : '#f5f5f5',
     webPreferences: {
       preload: preloadPath(),
       sandbox: false
@@ -43,7 +45,10 @@ function createMainWindow(): void {
   }
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  // 启动即恢复用户保存的主题：否则 nativeTheme 跟随系统，暗色应用会带亮色边框/白底窗口
+  const settings = await readSettings()
+  nativeTheme.themeSource = settings.theme
   registerSettingsIpc()
   registerDocIpc()
   registerExportIpc()

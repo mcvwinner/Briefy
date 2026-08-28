@@ -1,5 +1,5 @@
 import type * as React from 'react'
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { makeStyles, tokens } from '@fluentui/react-components'
 import type { Page, Slot } from '../../../shared/layout'
 import { renderInlineMarkdown } from '../utils/markdown'
@@ -66,10 +66,17 @@ const useStyles = makeStyles({
   },
   slot: {
     position: 'relative',
-    backgroundColor: tokens.colorNeutralBackground1,
+    backgroundColor: tokens.colorNeutralBackground2,
+    // 更柔和的边框层级：暗色下不刺眼，亮色下仍清晰
     border: `1px solid ${tokens.colorNeutralStroke2}`,
     borderRadius: tokens.borderRadiusMedium,
     cursor: 'pointer'
+  },
+  slotHover: {
+    borderTopColor: tokens.colorNeutralStroke1Hover,
+    borderRightColor: tokens.colorNeutralStroke1Hover,
+    borderBottomColor: tokens.colorNeutralStroke1Hover,
+    borderLeftColor: tokens.colorNeutralStroke1Hover
   },
   slotSelected: {
     outline: `2px solid ${tokens.colorBrandStroke1}`,
@@ -127,16 +134,29 @@ function SlotBox({
   children: ReactNode
 }): React.JSX.Element {
   const styles = useStyles()
+  const [hovered, setHovered] = useState(false)
   return (
     <div
-      className={`${styles.slot} ${selected ? styles.slotSelected : ''}`}
+      className={`${styles.slot} ${selected ? styles.slotSelected : ''} ${hovered ? styles.slotHover : ''}`}
       data-slot-id={slot.id}
       onPointerDown={onPointerDown}
+      onPointerEnter={() => setHovered(true)}
+      onPointerLeave={() => setHovered(false)}
     >
-      <span className={styles.roleBadge}>{slot.role}</span>
+      <span className={styles.roleBadge}>{ROLE_LABELS[slot.role] ?? slot.role}</span>
       {children}
     </div>
   )
+}
+
+/** 角色中文名（与 ROLE_DEFS 同步，避免渲染层直接依赖循环） */
+const ROLE_LABELS: Record<string, string> = {
+  headline: '头条',
+  body: '正文',
+  stats: '数据',
+  briefs: '快讯',
+  notice: '提示',
+  custom: '自定义'
 }
 
 interface PageViewProps {

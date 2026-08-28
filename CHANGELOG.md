@@ -2,6 +2,14 @@
 
 本项目的所有显著变更记录于此。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [0.9.2] - 2026-08-28
+
+### 修复
+
+- **暗色模式白边**：启动时从 `settings.json` 恢复 `nativeTheme.themeSource`（此前只跟随系统，暗色应用在亮色系统上会带亮色边框/白底窗口），窗口底色按主题设置（`backgroundColor`），切换主题时同步刷新所有窗口底色；
+- 槽位悬停边框改为按四边 longhand 设置，暗色下悬停对比度更柔和；槽位底色改用 `colorNeutralBackground2`，与纸面区分更自然；
+- 槽位角标显示角色中文名（头条/正文/数据/快讯/提示/自定义）。
+
 ## [0.9.1] - 2026-08-28
 
 ### 新增

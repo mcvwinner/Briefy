@@ -76,6 +76,7 @@
 - [x] PDF 导出（v0.2.0，printToPDF 零依赖方案）
 - [x] 首个可用版本发布（v0.1.0，2026-08-27）
 - [x] 槽位化版式（v0.8.0，Slot 取代 Block：角色职责/流式排布/自动分页，详见 docs/DESIGN-slots.md）
+- [x] 暗色模式白边修复 + UI 优化（v0.9.2，启动恢复 nativeTheme.themeSource + 窗口底色同步；槽位悬停/角色中文名）
 
 ## 7. 备忘
 

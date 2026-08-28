@@ -1,4 +1,4 @@
-import { app, ipcMain, nativeTheme } from 'electron'
+import { app, BrowserWindow, ipcMain, nativeTheme } from 'electron'
 import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { DEFAULT_SETTINGS, type AiSettings, type ThemeMode } from '../shared/settings'
@@ -13,7 +13,7 @@ function settingsPath(): string {
   return join(app.getPath('userData'), SETTINGS_FILE)
 }
 
-async function readSettings(): Promise<AiSettings> {
+export async function readSettings(): Promise<AiSettings> {
   try {
     const raw = await readFile(settingsPath(), 'utf-8')
     const parsed: unknown = JSON.parse(raw)
@@ -40,6 +40,10 @@ async function writeSettings(settings: AiSettings): Promise<void> {
   await writeFile(settingsPath(), JSON.stringify(settings, null, 2), 'utf-8')
   // 同步到系统级主题，让原生标题栏/对话框跟随亮暗模式
   nativeTheme.themeSource = settings.theme
+  // 同步刷新窗口底色，避免切主题后残留旧色"边框"
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.setBackgroundColor(settings.theme === 'dark' ? '#141414' : '#f5f5f5')
+  }
 }
 
 export function registerSettingsIpc(): void {
