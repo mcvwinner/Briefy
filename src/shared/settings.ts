@@ -1,4 +1,5 @@
-/** 用户配置的信息源：生成时主进程抓取其内容注入对应槽位提示词 */
+/** 信息源定义：生成时主进程抓取其内容注入对应槽位提示词。
+ *  源是槽位属性（随 .briefy/预设保存）；settings 里这份是"常用信息源"收藏夹，供槽位快速导入复用 */
 export interface InfoSource {
   id: string
   name: string
@@ -19,7 +20,7 @@ export interface AiSettings {
   theme: ThemeMode
   /** Tavily 搜索 API Key（可选，不填则搜索工具不可用） */
   tavilyKey: string
-  /** 信息源列表（C++ 安全站/GitHub Trending/番剧放送表…用户自配） */
+  /** 常用信息源收藏夹（槽位从中导入内联副本；不是生成时的直接引用） */
   sources: InfoSource[]
 }
 

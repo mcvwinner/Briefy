@@ -69,21 +69,70 @@ const useStyles = makeStyles({
   deleteBtn: {
     marginTop: '12px',
     color: tokens.colorPaletteRedForeground1
+  },
+  sourceRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px',
+    marginBottom: '4px'
+  },
+  sourceInfo: {
+    flex: 1,
+    minWidth: 0
+  },
+  sourceName: {
+    fontSize: tokens.fontSizeBase200,
+    color: tokens.colorNeutralForeground1,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap'
+  },
+  sourceUrl: {
+    fontSize: tokens.fontSizeBase100,
+    color: tokens.colorNeutralForeground3,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap'
+  },
+  sourceAddRow: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '4px',
+    marginTop: '4px'
+  },
+  commonBox: {
+    marginTop: '8px',
+    padding: '8px',
+    backgroundColor: tokens.colorNeutralBackground3,
+    borderRadius: tokens.borderRadiusMedium,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '4px'
   }
 })
 
 interface PropertiesPanelProps {
   slot: Slot | null
-  /** 全部已配置的信息源（设置页维护） */
-  sources: InfoSource[]
+  /** 常用信息源库（设置页维护），供槽位快速导入 */
+  commonSources: InfoSource[]
+  /** 把槽位上的源收藏进常用库（自动去重持久化） */
+  onAddCommonSources: (srcs: InfoSource[]) => void
   onChange: (patch: Partial<Slot>) => void
   onSetWidth: (widthMode: 'full' | 'half-left' | 'half-right' | 'sidebar') => void
   onRemove: () => void
 }
 
 /** 右侧属性面板：编辑选中槽位的角色、提示词、宽度、形式、工具、信息源 */
-function PropertiesPanel({ slot, sources, onChange, onSetWidth, onRemove }: PropertiesPanelProps): React.JSX.Element {
+function PropertiesPanel({
+  slot,
+  commonSources,
+  onAddCommonSources,
+  onChange,
+  onSetWidth,
+  onRemove
+}: PropertiesPanelProps): React.JSX.Element {
   const styles = useStyles()
+  const [newSource, setNewSource] = useState<InfoSource>({ id: '', name: '', url: '', note: '' })
 
   if (!slot) {
     return (
@@ -176,22 +225,14 @@ function PropertiesPanel({ slot, sources, onChange, onSetWidth, onRemove }: Prop
 
       <WidgetEditor slot={slot} onChange={onChange} />
 
-      {sources.length > 0 && (
-        <Field label="挂载信息源（生成时抓取内容作事实依据）" className={styles.fieldGap}>
-          {sources.map((src) => (
-            <Checkbox
-              key={src.id}
-              label={src.name}
-              checked={(slot.sourceIds ?? []).includes(src.id)}
-              onChange={(_, data) => {
-                const current = slot.sourceIds ?? []
-                const next = data.checked ? [...current, src.id] : current.filter((s) => s !== src.id)
-                onChange({ sourceIds: next })
-              }}
-            />
-          ))}
-        </Field>
-      )}
+      <SlotSourcesEditor
+        slot={slot}
+        commonSources={commonSources}
+        onAddCommonSources={onAddCommonSources}
+        onChange={onChange}
+        newSource={newSource}
+        setNewSource={setNewSource}
+      />
 
       <Button
         className={styles.deleteBtn}
@@ -202,6 +243,119 @@ function PropertiesPanel({ slot, sources, onChange, onSetWidth, onRemove }: Prop
         删除此槽位（Delete）
       </Button>
     </aside>
+  )
+}
+
+/** 槽位内联信息源编辑：源是槽位属性（随文档/预设保存）；常用源库可导入/收藏 */
+function SlotSourcesEditor({
+  slot,
+  commonSources,
+  onAddCommonSources,
+  onChange,
+  newSource,
+  setNewSource
+}: {
+  slot: Slot
+  commonSources: InfoSource[]
+  onAddCommonSources: (srcs: InfoSource[]) => void
+  onChange: (patch: Partial<Slot>) => void
+  newSource: InfoSource
+  setNewSource: (s: InfoSource) => void
+}): React.JSX.Element {
+  const styles = useStyles()
+  const slotSources = slot.sources ?? []
+
+  const setSources = (next: InfoSource[]): void => onChange({ sources: next })
+
+  const addInline = (): void => {
+    if (!newSource.name.trim() || !newSource.url.trim()) return
+    setSources([...slotSources, { ...newSource, id: crypto.randomUUID(), name: newSource.name.trim(), url: newSource.url.trim() }])
+    setNewSource({ id: '', name: '', url: '', note: '' })
+  }
+
+  // 常用源是否已被本槽位挂载（按 name+url 匹配，内联副本/自建源同源判同）
+  const isMounted = (src: InfoSource): boolean =>
+    slotSources.some((s) => s.name === src.name && s.url === src.url)
+
+  const toggleCommon = (src: InfoSource, checked: boolean): void => {
+    if (checked) {
+      setSources([...slotSources, { ...src }])
+    } else {
+      setSources(slotSources.filter((s) => !(s.name === src.name && s.url === src.url)))
+    }
+  }
+
+  const collectible = slotSources.filter((s) => !commonSources.some((c) => c.name === s.name && c.url === s.url))
+
+  return (
+    <Field label={`本槽位信息源（${slotSources.length}）—— 生成时抓取内容作事实依据`} className={styles.fieldGap}>
+      {slotSources.map((src, i) => (
+        <div key={src.id} className={styles.sourceRow}>
+          <div className={styles.sourceInfo}>
+            <div className={styles.sourceName}>{src.name}</div>
+            <div className={styles.sourceUrl}>{src.url}</div>
+          </div>
+          <Button
+            icon={<DeleteRegular />}
+            appearance="subtle"
+            size="small"
+            aria-label={`移除源 ${src.name}`}
+            onClick={() => setSources(slotSources.filter((_, j) => j !== i))}
+          />
+        </div>
+      ))}
+
+      {/* 内联添加新源 */}
+      <div className={styles.sourceAddRow}>
+        <Input
+          size="small"
+          placeholder="名称，如 GitHub Trending"
+          value={newSource.name}
+          onChange={(_, d) => setNewSource({ ...newSource, name: d.value })}
+        />
+        <Input
+          size="small"
+          placeholder="网址 https://…"
+          value={newSource.url}
+          onChange={(_, d) => setNewSource({ ...newSource, url: d.value })}
+        />
+        <Input
+          size="small"
+          placeholder="备注：这个源关注什么（可空）"
+          value={newSource.note}
+          onChange={(_, d) => setNewSource({ ...newSource, note: d.value })}
+        />
+        <Button size="small" appearance="primary" disabled={!newSource.name.trim() || !newSource.url.trim()} onClick={addInline}>
+          添加源
+        </Button>
+      </div>
+
+      {/* 常用源库：勾选即导入内联副本 */}
+      {commonSources.length > 0 && (
+        <div className={styles.commonBox}>
+          <div className={styles.hint}>常用信息源（勾选导入本槽位）</div>
+          {commonSources.map((src) => (
+            <Checkbox
+              key={src.id}
+              label={src.name}
+              checked={isMounted(src)}
+              onChange={(_, d) => toggleCommon(src, d.checked === true)}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* 把槽位上的新源收藏进常用库 */}
+      {collectible.length > 0 && (
+        <Button
+          size="small"
+          appearance="subtle"
+          onClick={() => onAddCommonSources(collectible)}
+        >
+          把本槽位 {collectible.length} 个新源存为常用
+        </Button>
+      )}
+    </Field>
   )
 }
 

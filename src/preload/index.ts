@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { AiSettings } from '../shared/settings'
+import type { AiSettings, InfoSource } from '../shared/settings'
 import type { LayoutDoc } from '../shared/layout'
 import type { UserPreset } from '../shared/user-preset'
 
@@ -13,9 +13,9 @@ const api = {
     tools: string[],
     docContext: unknown,
     slotIndex: number,
-    sourceIds: string[]
+    sources: InfoSource[]
   ): Promise<{ content: string }> =>
-    ipcRenderer.invoke('ai:generate-slot', prompt, role, kind, tools, docContext, slotIndex, sourceIds),
+    ipcRenderer.invoke('ai:generate-slot', prompt, role, kind, tools, docContext, slotIndex, sources),
   devExportState: (): Promise<unknown> => ipcRenderer.invoke('dev:export-state'),
   saveDoc: (doc: LayoutDoc): Promise<string | null> => ipcRenderer.invoke('doc:save', doc),
   openDoc: (): Promise<LayoutDoc | null> => ipcRenderer.invoke('doc:open'),

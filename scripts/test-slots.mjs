@@ -6,10 +6,12 @@ import {
   flowSlots,
   paginate,
   parseLayoutDoc,
+  migrateSlotSources,
   MARGIN_MM,
   SLOT_GAP_MM,
   PAGE_HEIGHT_MM
 } from '../src/shared/layout.ts'
+import { PRESETS, buildDocFromPreset } from '../src/shared/presets.ts'
 
 const assert = (cond, msg) => {
   if (!cond) {
@@ -88,6 +90,63 @@ const mkSlot = (x, y, estHeight, overflow = 0) => ({
     !doc.pages[0].slots[0].tools.includes('readReference'),
     'migrate: 过滤已废弃的 readReference 工具'
   )
+}
+
+// ---- 内置预设：按角色配默认工具（不能只带 getCurrentTime）----
+{
+  for (const preset of PRESETS) {
+    const doc = buildDocFromPreset(preset)
+    for (const page of doc.pages) {
+      for (const slot of page.slots) {
+        const hasContentTools =
+          slot.tools.includes('webSearch') && slot.tools.includes('fetchPage')
+        const ok =
+          ['headline', 'body', 'briefs'].includes(slot.role) ? hasContentTools : slot.tools.includes('getCurrentTime')
+        assert(ok, `预设 ${preset.id} 槽位角色 ${slot.role} 默认工具不完整（实际 ${slot.tools.join(',')}）`)
+      }
+    }
+  }
+}
+
+// ---- 信息源迁移：旧 sourceIds 从常用源库解析为内联 sources ----
+{
+  const library = [
+    { id: 's1', name: '源A', url: 'https://a.example.com', note: '' },
+    { id: 's2', name: '源B', url: 'https://b.example.com', note: '备注' }
+  ]
+  const v2 = JSON.stringify({
+    version: 2,
+    title: '旧槽位文档',
+    pages: [
+      {
+        id: 'p1',
+        slots: [
+          {
+            id: 'slot1',
+            role: 'body',
+            region: { x: 15, y: 15, width: 180 },
+            estHeight: 90,
+            kind: 'text',
+            prompt: '',
+            tools: ['getCurrentTime'],
+            sourceIds: ['s1', 'gone'],
+            status: 'empty'
+          }
+        ]
+      }
+    ]
+  })
+  const doc = JSON.parse(JSON.stringify(parseLayoutDoc(v2, library)))
+  const slot = doc.pages[0].slots[0]
+  assert(Array.isArray(slot.sources), '迁移: sourceIds → sources 数组')
+  assert(slot.sources.length === 1 && slot.sources[0].name === '源A', '迁移: 有效 id 解析为内联源，失效 id 丢弃')
+
+  // 新格式（内联 sources 已存在）原样保留
+  const migrated = migrateSlotSources(
+    { sources: [{ id: 'x', name: 'N', url: 'https://n.example.com', note: '' }] },
+    library
+  )
+  assert(migrated.sources.length === 1 && migrated.sources[0].id === 'x', '迁移: 新格式原样保留')
 }
 
 // 非法版本拒绝

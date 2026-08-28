@@ -4,6 +4,7 @@ import {
   createEmptyPage,
   createSlot,
   flowSlots,
+  migrateSlotSources,
   paginate,
   regionFor,
   MARGIN_MM,
@@ -14,6 +15,7 @@ import {
   type SlotRole,
   type WidthMode
 } from '../../../shared/layout'
+import type { InfoSource } from '../../../shared/settings'
 import { parseLayoutDoc } from '../../../shared/layout'
 
 /** 排版文档的全部操作：槽位增删改、多页管理、文档级操作 */
@@ -117,10 +119,19 @@ export function useLayout() {
     setSelectedSlotId(null)
   }, [])
 
-  /** 加载文档（接受 v2 doc 或旧 v1 JSON 字符串，内部统一迁移） */
-  const loadDoc = useCallback((docOrRaw: LayoutDoc | string): void => {
+  /** 加载文档（接受 v2 doc 或旧 v1 JSON 字符串，内部统一迁移；
+   *  传入常用源库时，旧 sourceIds 会解析为槽位内联源副本） */
+  const loadDoc = useCallback((docOrRaw: LayoutDoc | string, sourceLibrary: InfoSource[] = []): void => {
     const next =
-      typeof docOrRaw === 'string' ? parseLayoutDoc(docOrRaw) : docOrRaw
+      typeof docOrRaw === 'string'
+        ? parseLayoutDoc(docOrRaw, sourceLibrary)
+        : {
+            ...docOrRaw,
+            pages: docOrRaw.pages.map((p) => ({
+              ...p,
+              slots: p.slots.map((s) => migrateSlotSources(s, sourceLibrary))
+            }))
+          }
     setDoc(next)
     setCurrentPageId(next.pages[0]?.id ?? '')
     setSelectedSlotId(null)

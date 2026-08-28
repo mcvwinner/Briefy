@@ -128,7 +128,7 @@ function SettingsDialog({ open, settings, onClose, onSaved }: SettingsDialogProp
               />
             </Field>
 
-            <Field label={`信息源（${sources.length}）—— 生成时 AI 会抓取源内容作为事实依据`}>
+            <Field label={`常用信息源（${sources.length}）—— 收藏夹；在槽位属性面板中导入到具体槽位，生成时 AI 抓取源内容作为事实依据`}>
               <div className={styles.sourceList}>
                 {sources.map((src, i) => (
                   <div key={src.id} className={styles.sourceItem}>

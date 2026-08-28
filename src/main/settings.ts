@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, nativeTheme } from 'electron'
 import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { DEFAULT_SETTINGS, type AiSettings, type ThemeMode } from '../shared/settings'
+import { DEFAULT_SETTINGS, type AiSettings, type InfoSource, type ThemeMode } from '../shared/settings'
 import { generateSlotContent } from './ai'
 import type { DocContext } from './ai'
 import { fetchPageText } from './tools'
@@ -60,13 +60,12 @@ export function registerSettingsIpc(): void {
       tools: string[],
       docContext: DocContext,
       slotIndex: number,
-      sourceIds: string[]
+      sources: InfoSource[]
     ) => {
       const settings = await readSettings()
-      // 抓取该槽位挂载的信息源（失败的单个源跳过，不阻塞整体生成）
+      // 抓取该槽位内联挂载的信息源（失败的单个源跳过，不阻塞整体生成）
       const sourceContents: { name: string; note: string; text: string }[] = []
-      for (const sid of sourceIds ?? []) {
-        const src = settings.sources.find((s) => s.id === sid)
+      for (const src of sources ?? []) {
         if (!src?.url) continue
         try {
           sourceContents.push({ name: src.name, note: src.note, text: await fetchPageText(src.url) })

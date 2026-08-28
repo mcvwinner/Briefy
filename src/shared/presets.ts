@@ -24,6 +24,20 @@ export interface Preset {
   slots: SlotSpec[]
 }
 
+/** 各角色默认工具：内容类需要联网取事实，提示/自定义仅时间即可 */
+export function defaultToolsFor(role: SlotRole): ToolId[] {
+  switch (role) {
+    case 'headline':
+    case 'body':
+    case 'briefs':
+      return ['getCurrentTime', 'webSearch', 'fetchPage']
+    case 'stats':
+      return ['getCurrentTime', 'webSearch']
+    default:
+      return ['getCurrentTime']
+  }
+}
+
 function buildSlots(specs: SlotSpec[]): Slot[] {
   const slots: Slot[] = specs.map((spec) => {
     const region = { ...regionFor(spec.width), y: 0 } // y 由 flowSlots 统一计算
@@ -35,8 +49,8 @@ function buildSlots(specs: SlotSpec[]): Slot[] {
       estHeight: spec.estHeight ?? DEFAULT_SLOT_HEIGHT[role],
       kind: spec.kind ?? 'text',
       prompt: spec.prompt,
-      tools: spec.tools ?? ['getCurrentTime'],
-      sourceIds: [],
+      tools: spec.tools ?? defaultToolsFor(role),
+      sources: [],
       status: 'empty' as const
     }
   })

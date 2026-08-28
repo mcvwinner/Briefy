@@ -1,4 +1,6 @@
 import type { Slot, SlotStatus } from './layout'
+import { migrateSlotSources } from './layout'
+import type { InfoSource } from './settings'
 
 /**
  * 用户自定义预设（v2，槽位化）：
@@ -17,7 +19,10 @@ export function toPresetSlots(slots: Slot[]): UserPreset['pages'][number]['slots
   return slots.map(({ content: _c, status: _s, overflow: _o, ...rest }) => rest)
 }
 
-/** 从预设槽位还原为可编辑槽位（恢复默认状态） */
-export function fromPresetSlots(presetSlots: UserPreset['pages'][number]['slots']): Slot[] {
-  return presetSlots.map((s) => ({ ...s, status: 'empty' as SlotStatus }))
+/** 从预设槽位还原为可编辑槽位（恢复默认状态；旧 sourceIds 从常用源库迁移为内联源） */
+export function fromPresetSlots(
+  presetSlots: UserPreset['pages'][number]['slots'],
+  sourceLibrary: InfoSource[] = []
+): Slot[] {
+  return presetSlots.map((s) => migrateSlotSources({ ...s, status: 'empty' as SlotStatus }, sourceLibrary))
 }

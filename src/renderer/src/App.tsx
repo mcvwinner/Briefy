@@ -41,7 +41,7 @@ import StatusBar from './components/StatusBar'
 import SettingsDialog from './components/SettingsDialog'
 import InputDialog from './components/InputDialog'
 import { useLayout } from './hooks/useLayout'
-import type { AiSettings, ThemeMode } from '../../shared/settings'
+import type { AiSettings, InfoSource, ThemeMode } from '../../shared/settings'
 import type { LayoutDoc, Slot, SlotRole } from '../../shared/layout'
 import { ROLE_DEFS } from '../../shared/layout'
 import { PRESETS, buildDocFromPreset } from '../../shared/presets'
@@ -59,7 +59,7 @@ declare global {
         tools: string[],
         docContext: unknown,
         slotIndex: number,
-        sourceIds: string[]
+        sources: InfoSource[]
       ): Promise<{ content: string }>
       devExportState(): Promise<unknown>
       saveDoc(doc: LayoutDoc): Promise<string | null>
@@ -214,7 +214,7 @@ function App(): React.JSX.Element {
               task.slot.tools ?? ['getCurrentTime'],
               docContext,
               task.index,
-              task.slot.sourceIds ?? []
+              task.slot.sources ?? []
             )
             layout.updateSlot(task.pageId, task.slot.id, { content, status: 'done' })
           } catch (err) {
@@ -241,7 +241,7 @@ function App(): React.JSX.Element {
   /** 打开 .briefy 设计文件 */
   const openDoc = async (): Promise<void> => {
     const doc = await window.briefy?.openDoc()
-    if (doc) layout.loadDoc(doc)
+    if (doc) layout.loadDoc(doc, settings?.sources ?? [])
   }
 
   /** 导出当前文档为 PDF */
@@ -286,7 +286,10 @@ function App(): React.JSX.Element {
     layout.loadDoc({
       version: 2,
       title: preset.name,
-      pages: preset.pages.map((p) => ({ id: crypto.randomUUID(), slots: fromPresetSlots(p.slots) }))
+      pages: preset.pages.map((p) => ({
+        id: crypto.randomUUID(),
+        slots: fromPresetSlots(p.slots, settings?.sources ?? [])
+      }))
     })
   }
 
@@ -513,7 +516,16 @@ function App(): React.JSX.Element {
           </div>
           <PropertiesPanel
             slot={layout.selection?.slot ?? null}
-            sources={settings?.sources ?? []}
+            commonSources={settings?.sources ?? []}
+            onAddCommonSources={(srcs) => {
+              if (!settings) return
+              // 去重合并进常用源库并持久化（按 name+url 判重）
+              const existing = new Set(settings.sources.map((s) => `${s.name}|${s.url}`))
+              const merged = [...settings.sources, ...srcs.filter((s) => !existing.has(`${s.name}|${s.url}`))]
+              const updated = { ...settings, sources: merged }
+              setSettings(updated)
+              void window.briefy?.saveSettings?.(updated)
+            }}
             onChange={(patch) => {
               if (layout.selection) {
                 layout.updateSlot(layout.selection.page.id, layout.selection.slot.id, patch)

@@ -1,4 +1,4 @@
-import type { AiSettings } from './settings'
+import type { AiSettings, InfoSource } from './settings'
 
 /**
  * 槽位化数据模型（v2）——Block 体系的替代者。
@@ -40,8 +40,8 @@ export interface Slot {
   prompt: string
   /** 允许此槽位使用的 AI 工具 */
   tools: ToolId[]
-  /** 关联的信息源 ID 列表（生成时主进程抓取源内容注入提示词） */
-  sourceIds: string[]
+  /** 本槽位挂载的信息源（内联副本，随文档/预设保存；生成时主进程直接抓取） */
+  sources: InfoSource[]
   /** AI 产出：控件协议文本 */
   content?: string
   status: SlotStatus
@@ -87,7 +87,7 @@ export function createSlot(role: SlotRole, region: Slot['region'], estHeight: nu
     kind: 'text',
     prompt: '',
     tools: ['getCurrentTime'],
-    sourceIds: [],
+    sources: [],
     status: 'empty'
   }
 }
@@ -208,20 +208,37 @@ function migrateBlock(b: LegacyBlock): Slot {
     kind: b.kind === 'table' ? 'table' : 'text',
     prompt: typeof b.prompt === 'string' ? b.prompt : '',
     tools: Array.isArray(b.tools) ? (b.tools.filter((t) => t !== 'readReference') as ToolId[]) : ['getCurrentTime'],
-    sourceIds: [],
+    sources: [],
     status: 'empty'
   }
 }
 
-/** 解析 .briefy 文件内容：v2 直读，v1 迁移 */
-export function parseLayoutDoc(raw: string): LayoutDoc {
+/** 信息源归一化：新格式（内联 sources）原样保留；旧格式槽位的 sourceIds 从常用源库解析为内联副本（失效 id 丢弃） */
+export function migrateSlotSources<T extends Slot>(slot: T, library: InfoSource[]): T {
+  if (Array.isArray((slot as { sources?: unknown }).sources)) return slot
+  const ids = (slot as unknown as { sourceIds?: string[] }).sourceIds ?? []
+  const sources = ids
+    .map((id) => library.find((s) => s.id === id))
+    .filter((s): s is InfoSource => Boolean(s))
+  return { ...slot, sources }
+}
+
+/** 解析 .briefy 文件内容：v2 直读（sourceIds 旧字段从常用源库迁移），v1 迁移 */
+export function parseLayoutDoc(raw: string, sourceLibrary: InfoSource[] = []): LayoutDoc {
   const data: unknown = JSON.parse(raw)
   if (!data || typeof data !== 'object') throw new Error('不是有效的 Briefy 设计文件')
   const doc = data as { version?: number; title?: string; pages?: unknown[] }
   if (!Array.isArray(doc.pages)) throw new Error('设计文件缺少页面数据')
 
   if (doc.version === 2) {
-    return { version: 2, title: doc.title ?? '未命名报纸', pages: doc.pages as Page[] }
+    return {
+      version: 2,
+      title: doc.title ?? '未命名报纸',
+      pages: (doc.pages as Page[]).map((p) => ({
+        ...p,
+        slots: (p.slots ?? []).map((s) => migrateSlotSources(s, sourceLibrary))
+      }))
+    }
   }
   if (doc.version === 1) {
     // v1: pages[].blocks[] → v2: pages[].slots[]
