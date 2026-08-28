@@ -111,7 +111,11 @@ const useStyles = makeStyles({
     padding: '8px',
     marginTop: '4px'
   },
-  dutyArea: { minHeight: '52px', fontFamily: 'inherit' }
+  dutyArea: {
+    minHeight: '52px',
+    width: '100%',
+    fontFamily: 'inherit'
+  }
 })
 
 interface SettingsDialogProps {
@@ -331,7 +335,12 @@ function SettingsDialog({ open, settings, onClose, onSaved }: SettingsDialogProp
               </div>
             </Field>
             <Field label={`角色职责自定义（${Object.keys(roleDuties).length} 个已自定义，可同时生效；留空 = 使用默认职责）`}>
-              <Accordion openItems={dutyOpenItems} onToggle={(_, d) => setDutyOpenItems(d.openItems as string[])}>
+              <Accordion
+                openItems={dutyOpenItems}
+                onToggle={(_, d) => setDutyOpenItems(d.openItems as string[])}
+                multiple
+                collapsible
+              >
                 {(Object.keys(ROLE_DEFS) as SlotRole[]).map((role) => {
                   const customized = Boolean(roleDuties[role]?.trim())
                   return (
