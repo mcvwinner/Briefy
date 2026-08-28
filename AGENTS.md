@@ -75,7 +75,7 @@
 - [x] 设计文件保存/打开（v0.2.0，.briefy JSON + 系统对话框）
 - [x] PDF 导出（v0.2.0，printToPDF 零依赖方案）
 - [x] 首个可用版本发布（v0.1.0，2026-08-27）
-- [ ] 槽位化版式（架构 v2 P4，大重构待定，详见 docs/DESIGN-widgets.md）
+- [x] 槽位化版式（v0.8.0，Slot 取代 Block：角色职责/流式排布/自动分页，详见 docs/DESIGN-slots.md）
 
 ## 7. 备忘
 
