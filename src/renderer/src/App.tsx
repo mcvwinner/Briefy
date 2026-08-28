@@ -1,6 +1,14 @@
 import type * as React from 'react'
 import { useEffect, useState, useCallback, useRef } from 'react'
 import {
+  Button,
+  Dialog,
+  DialogActions,
+  DialogBody,
+  DialogContent,
+  DialogSurface,
+  DialogTitle,
+  DialogTrigger,
   FluentProvider,
   makeStyles,
   Menu,
@@ -64,6 +72,15 @@ declare global {
         estHeight: number
       ): Promise<{ content: string; usage?: { promptTokens: number; completionTokens: number; totalTokens: number } }>
       cancelGeneration(generationId: string): Promise<boolean>
+      planIssue(
+        generationId: string,
+        outline: { index: number; role: string; prompt: string }[],
+        sources: InfoSource[]
+      ): Promise<{ assignments: { index: number; angle: string; quota?: number; avoid?: string }[] }>
+      reviewIssue(
+        generationId: string,
+        articles: { index: number; role: string; content: string }[]
+      ): Promise<{ comments: { index: number; problem: string; instruction: string }[] }>
       devExportState(): Promise<unknown>
       saveDoc(doc: LayoutDoc): Promise<string | null>
       openDoc(): Promise<LayoutDoc | null>
@@ -178,16 +195,26 @@ function App(): React.JSX.Element {
 
   /** 并发生成所有槽位（并发上限 3），逐槽回填；附带文档大纲供 AI 语篇决策 */
   const [generating, setGenerating] = useState(false)
+  /** 编辑部阶段（ROADMAP Q2）：null = 非编辑部模式或未到阶段 */
+  const [phase, setPhase] = useState<'选题中…' | '写作中…' | '审稿中…' | null>(null)
+  /** 审稿意见（生成完成后弹出，一键应用或忽略） */
+  const [reviewState, setReviewState] = useState<{
+    comments: { index: number; role: string; problem: string; instruction: string }[]
+  } | null>(null)
   /** 进行中的生成任务（用户可终止） */
   const inFlightRef = useRef<Set<string>>(new Set())
   /** 用户已请求终止：worker 不再从队列取新任务 */
   const cancelRef = useRef(false)
+  /** 最近一次全量生成的任务表（供审稿一键应用按 index 定位槽位） */
+  const tasksRef = useRef<{ slot: Slot; index: number }[]>([])
 
-  /** 生成单个槽位：失败自动重试 1 次，仍失败报错上屏；被用户终止则复位为空 */
+  /** 生成单个槽位：失败自动重试 1 次，仍失败报错上屏；被用户终止则复位为空。
+   *  extraPrompt：编辑部模式下的选题/审稿附加指令，拼在槽位提示词后 */
   const runSlotTask = async (
     slot: Slot,
     index: number,
-    docContext: { title: string; outline: { position: string; prompt: string }[] }
+    docContext: { title: string; outline: { position: string; prompt: string }[] },
+    extraPrompt = ''
   ): Promise<void> => {
     if (cancelRef.current) return // 已请求终止：跳过队列任务
     const generationId = crypto.randomUUID()
@@ -210,7 +237,7 @@ function App(): React.JSX.Element {
         return Promise.race([
           window.briefy!.generateSlot(
             generationId,
-            slot.prompt,
+            extraPrompt ? `${slot.prompt}\n\n${extraPrompt}` : slot.prompt,
             ROLE_DEFS[slot.role].name,
             slot.kind,
             slot.tools ?? ['getCurrentTime'],
@@ -290,6 +317,7 @@ function App(): React.JSX.Element {
       return
     }
     cancelRef.current = false
+    setReviewState(null)
     setGenerating(true)
     try {
       const tasks: { pageId: string; slot: Slot; index: number }[] = []
@@ -301,6 +329,7 @@ function App(): React.JSX.Element {
           index++
         }
       }
+      tasksRef.current = tasks.map((t) => ({ slot: t.slot, index: t.index }))
       // 语篇上下文：整份报纸的槽位大纲（角色+职责）
       const docContext = {
         title: layout.doc.title,
@@ -312,18 +341,117 @@ function App(): React.JSX.Element {
         )
       }
 
+      // ---- 编辑部模式（ROADMAP Q2）：选题 → 写作 → 审稿；任一环节失败自动降级为旧流程 ----
+      const editorial = settings?.editorial?.enabled === true
+      /** 选题单：index → 附加指令 */
+      const assignmentMap = new Map<number, string>()
+
+      if (editorial && tasks.length > 0) {
+        // 快照：生成开始前存当前版（审稿应用改写前可还原）
+        try {
+          localStorage.setItem('briefy-snapshot', JSON.stringify(layout.doc))
+        } catch { /* 超限则忽略 */ }
+
+        setPhase('选题中…')
+        try {
+          const planId = crypto.randomUUID()
+          inFlightRef.current.add(planId)
+          const outline = tasks.map((t) => ({ index: t.index, role: ROLE_DEFS[t.slot.role].name, prompt: t.slot.prompt }))
+          const flatSources = [...new Map(tasks.flatMap((t) => t.slot.sources ?? []).map((s) => [s.url, s])).values()]
+          const plan = await window.briefy.planIssue(planId, outline, flatSources)
+          for (const a of plan.assignments) {
+            const parts = [`【本期选题】${a.angle}`]
+            if (a.quota) parts.push(`（建议 ${a.quota} 字以内）`)
+            if (a.avoid?.trim()) parts.push(`【分工】${a.avoid.trim()}`)
+            assignmentMap.set(a.index, parts.join(''))
+          }
+        } catch (err) {
+          console.warn('选题失败，降级为逐槽独立生成：', err)
+        } finally {
+          inFlightRef.current.delete([...inFlightRef.current][0] ?? '')
+        }
+      }
+
+      setPhase(editorial && assignmentMap.size > 0 ? '写作中…' : null)
+
       const CONCURRENCY = 3
       let cursor = 0
       const worker = async (): Promise<void> => {
         while (!cancelRef.current && cursor < tasks.length) {
           const task = tasks[cursor++]
-      await runSlotTask(task.slot, task.index, docContext)
+          await runSlotTask(task.slot, task.index, docContext, assignmentMap.get(task.index) ?? '')
         }
       }
       await Promise.all(Array.from({ length: Math.min(CONCURRENCY, tasks.length) }, worker))
+      if (cancelRef.current) return
+
+      // ---- 审稿：一次自检调用，意见弹出待用户一键应用（失败静默忽略） ----
+      if (editorial && tasks.length > 0) {
+        setPhase('审稿中…')
+        try {
+          const reviewId = crypto.randomUUID()
+          inFlightRef.current.add(reviewId)
+          const articles = tasks.map((t) => ({
+            index: t.index,
+            role: ROLE_DEFS[t.slot.role].name,
+            content: layout.doc.pages.flatMap((p) => p.slots).find((s) => s.id === t.slot.id)?.content ?? ''
+          }))
+          const valid = articles.filter((a) => a.content.trim())
+          if (valid.length > 0) {
+            const review = await window.briefy.reviewIssue(reviewId, valid)
+            if (review.comments.length > 0) {
+              setReviewState({
+                comments: review.comments
+                  .map((c) => {
+                    const task = tasks.find((t) => t.index === c.index)
+                    return task ? { ...c, role: ROLE_DEFS[task.slot.role].name } : null
+                  })
+                  .filter((c): c is { index: number; role: string; problem: string; instruction: string } => c !== null)
+              })
+            }
+          }
+        } catch (err) {
+          console.warn('审稿失败（忽略，不影响成品）：', err)
+        }
+      }
     } finally {
       cancelRef.current = false
+      setPhase(null)
       setGenerating(false)
+    }
+  }
+
+  /** 一键应用某条审稿意见：按指令重写对应槽位（复用单槽生成） */
+  const applyReviewComment = async (comment: { index: number; role: string; problem: string; instruction: string }): Promise<void> => {
+    const task = tasksRef.current.find((t) => t.index === comment.index)
+    if (!task || !window.briefy || generating) return
+    setGenerating(true)
+    try {
+      const docContext = {
+        title: layout.doc.title,
+        outline: layout.doc.pages.flatMap((page, pi) =>
+          page.slots.map((s) => ({ position: `第${pi + 1}页·${ROLE_DEFS[s.role].name}`, prompt: s.prompt }))
+        )
+      }
+      await runSlotTask(task.slot, comment.index, docContext, `【主编审稿指令】${comment.problem}。${comment.instruction}`)
+    } finally {
+      setGenerating(false)
+      setReviewState(null)
+    }
+  }
+
+  /** 还原上次生成前快照（编辑部模式自动保存） */
+  const restoreSnapshot = (): void => {
+    try {
+      const raw = localStorage.getItem('briefy-snapshot')
+      if (!raw) {
+        window.alert('没有可用的快照')
+        return
+      }
+      layout.loadDoc(JSON.parse(raw) as LayoutDoc)
+      window.alert('已还原到上次生成前的版本')
+    } catch (err) {
+      window.alert('还原失败：' + String(err))
     }
   }
 
@@ -501,6 +629,9 @@ function App(): React.JSX.Element {
                 <MenuItem icon={<DocumentPdfRegular />} onClick={() => void exportPdf()}>
                   导出 PDF…
                 </MenuItem>
+                <MenuItem icon={<ArrowImportRegular />} onClick={restoreSnapshot}>
+                  还原上次生成前快照
+                </MenuItem>
               </MenuList>
             </MenuPopover>
           </Menu>
@@ -612,7 +743,7 @@ function App(): React.JSX.Element {
               </MenuList>
             </MenuPopover>
           </Menu>
-          <Tooltip content={generating ? '点击终止全部生成任务' : '让 AI 填充全部槽位：按各槽位的角色与提示词并行写作；可在设置中配置模型与信息源'} relationship="description">
+          <Tooltip content={generating ? `${phase ?? '生成中'}·点击终止全部任务` : '让 AI 填充全部槽位：按各槽位的角色与提示词并行写作；可在设置中配置模型与信息源'} relationship="description">
             <ToolbarButton
               icon={<WandRegular />}
               disabled={!hasApiKey}
@@ -705,7 +836,7 @@ function App(): React.JSX.Element {
           onRemove={layout.removePage}
         />
 
-        <StatusBar version="0.9.3" hasApiKey={hasApiKey} />
+        <StatusBar version="0.15.0" hasApiKey={hasApiKey} phase={phase} />
 
         <SettingsDialog
           open={settingsOpen}
@@ -725,6 +856,53 @@ function App(): React.JSX.Element {
           }}
           onCancel={() => setInputDialog(null)}
         />
+
+        {/* 审稿意见面板（ROADMAP Q2）：一键应用重写 / 忽略 */}
+        <Dialog open={reviewState !== null} onOpenChange={(_, d) => { if (!d.open) setReviewState(null) }}>
+          <DialogSurface>
+            <DialogBody>
+              <DialogTitle>主编审稿意见</DialogTitle>
+              <DialogContent>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  {reviewState?.comments.map((c, i) => (
+                    <div
+                      key={i}
+                      style={{
+                        padding: '10px',
+                        border: `1px solid ${tokens.colorNeutralStroke2}`,
+                        borderRadius: tokens.borderRadiusMedium
+                      }}
+                    >
+                      <div style={{ fontWeight: tokens.fontWeightSemibold, marginBottom: '4px' }}>
+                        {c.role}：{c.problem}
+                      </div>
+                      <div style={{ fontSize: tokens.fontSizeBase200, color: tokens.colorNeutralForeground2 }}>
+                        指令：{c.instruction}
+                      </div>
+                      <Button
+                        size="small"
+                        appearance="primary"
+                        style={{ marginTop: '8px' }}
+                        disabled={generating}
+                        onClick={() => void applyReviewComment(c)}
+                      >
+                        按指令重写此槽
+                      </Button>
+                    </div>
+                  ))}
+                  <p style={{ fontSize: tokens.fontSizeBase200, color: tokens.colorNeutralForeground3, margin: 0 }}>
+                    生成前的版本已自动存为快照；如需还原，请使用"文件 → 还原上次生成前快照"。
+                  </p>
+                </div>
+              </DialogContent>
+              <DialogActions>
+                <DialogTrigger disableButtonEnhancement>
+                  <Button appearance="secondary">忽略</Button>
+                </DialogTrigger>
+              </DialogActions>
+            </DialogBody>
+          </DialogSurface>
+        </Dialog>
       </div>
     </FluentProvider>
   )

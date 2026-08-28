@@ -31,6 +31,18 @@ const api = {
     ),
   cancelGeneration: (generationId: string): Promise<boolean> =>
     ipcRenderer.invoke('ai:cancel-generation', generationId),
+  /** 编辑部三段式（ROADMAP Q2）：选题 / 审稿 */
+  planIssue: (
+    generationId: string,
+    outline: { index: number; role: string; prompt: string }[],
+    sources: InfoSource[]
+  ): Promise<{ assignments: { index: number; angle: string; quota?: number; avoid?: string }[] }> =>
+    ipcRenderer.invoke('ai:plan-issue', generationId, outline, sources),
+  reviewIssue: (
+    generationId: string,
+    articles: { index: number; role: string; content: string }[]
+  ): Promise<{ comments: { index: number; problem: string; instruction: string }[] }> =>
+    ipcRenderer.invoke('ai:review-issue', generationId, articles),
   devExportState: (): Promise<unknown> => ipcRenderer.invoke('dev:export-state'),
   saveDoc: (doc: LayoutDoc): Promise<string | null> => ipcRenderer.invoke('doc:save', doc),
   openDoc: (): Promise<LayoutDoc | null> => ipcRenderer.invoke('doc:open'),

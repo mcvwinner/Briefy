@@ -37,6 +37,14 @@ export interface LayoutPrefs {
   }
 }
 
+/** 编辑部三段式（ROADMAP Q2）：选题→写作→审稿；默认关 = 旧逐槽独立流程 */
+export interface EditorialPrefs {
+  /** 启用编辑部模式 */
+  enabled?: boolean
+  /** 选题/审稿模型（留空 = 主模型） */
+  reviewModel?: string
+}
+
 /** AI 服务配置 + 外观偏好，持久化在应用 userData 目录 */
 export interface AiSettings {
   /** API 密钥 */
@@ -57,6 +65,8 @@ export interface AiSettings {
   stylePrompt?: string
   /** 角色职责自定义（覆盖 ROLE_DEFS duty；P6b） */
   roleDuties?: Partial<Record<string, string>>
+  /** 编辑部三段式（ROADMAP Q2） */
+  editorial?: EditorialPrefs
 }
 
 export type ThemeMode = 'light' | 'dark'

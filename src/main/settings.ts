@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, nativeTheme } from 'electron'
 import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { DEFAULT_SETTINGS, type AiSettings, type InfoSource, type ThemeMode } from '../shared/settings'
-import { generateSlotContent } from './ai'
+import { generateSlotContent, planIssue, reviewIssue } from './ai'
 import type { DocContext } from './ai'
 import { fetchPageText } from './tools'
 import type { ToolId } from '../shared/layout'
@@ -29,6 +29,8 @@ export async function readSettings(): Promise<AiSettings> {
         s.roleDuties && typeof s.roleDuties === 'object' && !Array.isArray(s.roleDuties)
           ? (s.roleDuties as AiSettings['roleDuties'])
           : undefined
+      const editorial =
+        s.editorial && typeof s.editorial === 'object' ? (s.editorial as AiSettings['editorial']) : undefined
       return {
         apiKey: typeof apiKey === 'string' ? apiKey : '',
         baseUrl: typeof baseUrl === 'string' ? baseUrl : '',
@@ -38,7 +40,8 @@ export async function readSettings(): Promise<AiSettings> {
         sources: Array.isArray(sources) ? sources : [],
         layout,
         stylePrompt,
-        roleDuties
+        roleDuties,
+        editorial
       }
     }
   } catch {
@@ -117,6 +120,60 @@ export function registerSettingsIpc(): void {
     activeGenerations.get(generationId)?.abort()
     return true
   })
+
+  /** 编辑部阶段共用的源摘要抓取（带当日缓存；失败标原因） */
+  const gatherSourceDigests = async (sources: InfoSource[]) => {
+    const digests: { name: string; text: string }[] = []
+    for (const src of sources ?? []) {
+      if (!src?.url) continue
+      try {
+        digests.push({ name: src.name, text: await fetchPageText(src.url) })
+      } catch (err) {
+        digests.push({ name: src.name, text: `（此源抓取失败：${err instanceof Error ? err.message : String(err)}）` })
+      }
+    }
+    return digests
+  }
+
+  /** 编辑部三段式 · 选题（ROADMAP Q2） */
+  ipcMain.handle(
+    'ai:plan-issue',
+    async (
+      _event,
+      generationId: string,
+      outline: { index: number; role: string; prompt: string }[],
+      sources: InfoSource[]
+    ) => {
+      const settings = await readSettings()
+      const controller = new AbortController()
+      activeGenerations.set(generationId, controller)
+      try {
+        const digests = await gatherSourceDigests(sources)
+        return await planIssue(settings, outline ?? [], digests, controller.signal)
+      } finally {
+        activeGenerations.delete(generationId)
+      }
+    }
+  )
+
+  /** 编辑部三段式 · 审稿（ROADMAP Q2） */
+  ipcMain.handle(
+    'ai:review-issue',
+    async (
+      _event,
+      generationId: string,
+      articles: { index: number; role: string; content: string }[]
+    ) => {
+      const settings = await readSettings()
+      const controller = new AbortController()
+      activeGenerations.set(generationId, controller)
+      try {
+        return await reviewIssue(settings, articles ?? [], controller.signal)
+      } finally {
+        activeGenerations.delete(generationId)
+      }
+    }
+  )
   // 开发/自动化验证用：导出真实状态到临时文件（测试与 AI 助手可读取）
   ipcMain.handle('dev:export-state', async () => {
     const settings = await readSettings()

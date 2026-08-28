@@ -131,6 +131,8 @@ function SettingsDialog({ open, settings, onClose, onSaved }: SettingsDialogProp
   const [layout, setLayout] = useState<LayoutPrefs>({})
   const [stylePrompt, setStylePrompt] = useState('')
   const [roleDuties, setRoleDuties] = useState<Partial<Record<string, string>>>({})
+  const [editorialEnabled, setEditorialEnabled] = useState(false)
+  const [reviewModel, setReviewModel] = useState('')
 
   // 每次打开时同步当前已保存的配置
   useEffect(() => {
@@ -142,7 +144,10 @@ function SettingsDialog({ open, settings, onClose, onSaved }: SettingsDialogProp
       setSources(settings.sources ?? [])
       setLayout(settings.layout ?? {})
       setStylePrompt(settings.stylePrompt ?? '')
-      setRoleDuties(settings.roleDuties ?? {})    }
+      setRoleDuties(settings.roleDuties ?? {})
+      setEditorialEnabled(settings.editorial?.enabled === true)
+      setReviewModel(settings.editorial?.reviewModel ?? '')
+    }
   }, [open, settings])
 
   if (!open) return null
@@ -157,7 +162,11 @@ function SettingsDialog({ open, settings, onClose, onSaved }: SettingsDialogProp
       sources: sources.filter((s) => s.name.trim() && s.url.trim()),
       layout,
       stylePrompt: stylePrompt.trim() || undefined,
-      roleDuties: Object.keys(roleDuties).length > 0 ? roleDuties : undefined
+      roleDuties: Object.keys(roleDuties).length > 0 ? roleDuties : undefined,
+      editorial: {
+        enabled: editorialEnabled,
+        reviewModel: reviewModel.trim() || undefined
+      }
     }
     try {
       if (window.briefy) {
@@ -297,6 +306,24 @@ function SettingsDialog({ open, settings, onClose, onSaved }: SettingsDialogProp
                 value={stylePrompt}
                 onChange={(_, d) => setStylePrompt(d.value)}
               />
+            </Field>
+            <Field label="编辑部模式（ROADMAP Q2）">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <Checkbox
+                  label="启用编辑部三段式（选题 → 写作 → 审稿）：生成前先为每个槽位分配互不重复的选题，完成后主编审稿；默认关闭 = 逐槽独立生成"
+                  checked={editorialEnabled}
+                  onChange={(_, d) => setEditorialEnabled(d.checked === true)}
+                />
+                <Input
+                  size="small"
+                  placeholder="选题/审稿模型（留空 = 用上方主模型，如 deepseek-reasoner）"
+                  value={reviewModel}
+                  onChange={(_, d) => setReviewModel(d.value)}
+                />
+                <p className={styles.hint}>
+                  每期额外增加 2 次 AI 调用；审稿意见生成后由你决定是否按指令重写；生成前的版本自动存为快照可还原。
+                </p>
+              </div>
             </Field>
             <Field label="角色职责自定义（留空 = 使用默认职责）">
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>

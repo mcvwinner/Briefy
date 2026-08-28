@@ -288,3 +288,138 @@ export async function generateSlotContent(
     usage
   }
 }
+
+// ---------- 编辑部三段式（ROADMAP Q2）：选题 / 审稿 ----------
+
+/** 从模型输出中提取 JSON 对象（容忍 ```json 围栏与前后缀文本） */
+function extractJson(text: string): unknown {
+  const cleaned = text.replace(/```(?:json)?/gi, '').trim()
+  const start = cleaned.indexOf('{')
+  const end = cleaned.lastIndexOf('}')
+  if (start === -1 || end === -1 || end <= start) throw new Error('输出中未找到 JSON')
+  return JSON.parse(cleaned.slice(start, end + 1))
+}
+
+/** 单次无工具对话（编辑部阶段专用）：结构简单、一次往返 */
+async function chatOnce(
+  settings: AiSettings,
+  messages: { role: 'system' | 'user'; content: string }[],
+  signal?: AbortSignal,
+  modelOverride?: string
+): Promise<string> {
+  const url = (settings.baseUrl || 'https://api.openai.com/v1').replace(/\/+$/, '') + '/chat/completions'
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${settings.apiKey}` },
+    body: JSON.stringify({ model: modelOverride || settings.model, messages }),
+    signal: AbortSignal.any([AbortSignal.timeout(90_000), ...(signal ? [signal] : [])])
+  })
+  if (!res.ok) throw new Error(`AI 接口错误 ${res.status}: ${(await res.text()).slice(0, 200)}`)
+  const data = (await res.json()) as { choices?: { message?: { content?: unknown } }[] }
+  const content = data.choices?.[0]?.message?.content
+  if (typeof content !== 'string' || !content.trim()) throw new Error('AI 返回了空响应')
+  return content
+}
+
+const PLAN_SCHEMA = z.object({
+  assignments: z
+    .array(
+      z.object({
+        index: z.number().int(),
+        angle: z.string(),
+        quota: z.number().int().optional(),
+        avoid: z.string().optional()
+      })
+    )
+    .min(1)
+})
+
+const REVIEW_SCHEMA = z.object({
+  comments: z.array(
+    z.object({
+      index: z.number().int(),
+      problem: z.string(),
+      instruction: z.string()
+    })
+  )
+})
+
+/** 选题单条目 */
+export interface IssueAssignment {
+  index: number
+  angle: string
+  quota?: number
+  avoid?: string
+}
+
+/** 审稿意见条目 */
+export interface ReviewComment {
+  index: number
+  problem: string
+  instruction: string
+}
+
+/**
+ * 选题：编辑通览全部槽位与信息源摘要，为每槽定选题/角度/字数配额，保证互不重复。
+ * 失败抛异常，由调用方降级为旧流程。
+ */
+export async function planIssue(
+  settings: AiSettings,
+  outline: { index: number; role: string; prompt: string }[],
+  sourceDigests: { name: string; text: string }[],
+  signal?: AbortSignal
+): Promise<IssueAssignment[]> {
+  const messages = [
+    {
+      role: 'system' as const,
+      content: [
+        '你是一家个性化报纸的选题编辑。请通览全部版面槽位与信息源摘要，为每个槽位分配互不重复的选题角度。',
+        '规则：头条给最有分量的选题；数据槽专注数字；快讯覆盖未被头条与正文使用的小事件；相邻槽位角度必须错开。',
+        '只输出 JSON，格式：{"assignments":[{"index":槽位序号,"angle":"一句话选题（含切入角度）","quota":建议字数,"avoid":"需与哪个槽位错开什么"}]}',
+        'index 必须覆盖全部槽位，一字不差。'
+      ].join('\n')
+    },
+    {
+      role: 'user' as const,
+      content: [
+        `报纸标题：${settings.stylePrompt?.trim() ? `（本报调性：${settings.stylePrompt.trim()}）` : ''}`,
+        '槽位清单：',
+        ...outline.map((o) => `${o.index}. [${o.role}] ${o.prompt.slice(0, 80)}`),
+        '',
+        '信息源摘要（今日真实内容，选题必须从中取材）：',
+        ...sourceDigests.map((s) => `[${s.name}]\n${s.text.slice(0, 1200)}`)
+      ].join('\n')
+    }
+  ]
+  const raw = await chatOnce(settings, messages, signal, settings.editorial?.reviewModel)
+  const parsed = PLAN_SCHEMA.parse(extractJson(raw))
+  return parsed.assignments
+}
+
+/**
+ * 审稿：通读全部成品，查重复/超限/断裂，输出修改指令（不直接改文）。
+ * 无问题时返回空数组；失败抛异常，由调用方忽略。
+ */
+export async function reviewIssue(
+  settings: AiSettings,
+  articles: { index: number; role: string; content: string }[],
+  signal?: AbortSignal
+): Promise<ReviewComment[]> {
+  const messages = [
+    {
+      role: 'system' as const,
+      content: [
+        '你是报纸主编，正在审阅一期报纸的全部稿件。检查：槽位间内容重复、明显事实断裂、与槽位职责不符。',
+        '只输出 JSON，格式：{"comments":[{"index":槽位序号,"problem":"问题一句话","instruction":"给该槽位作者的重写指令（含应保留什么、避开什么）"}]}',
+        '没有需要修改的稿件时输出 {"comments":[]}。宁缺毋滥：只指出确凿的问题。'
+      ].join('\n')
+    },
+    {
+      role: 'user' as const,
+      content: ['全部稿件：', ...articles.map((a) => `【${a.index}. ${a.role}】\n${a.content.slice(0, 1500)}`)].join('\n\n')
+    }
+  ]
+  const raw = await chatOnce(settings, messages, signal, settings.editorial?.reviewModel)
+  const parsed = REVIEW_SCHEMA.parse(extractJson(raw))
+  return parsed.comments
+}
