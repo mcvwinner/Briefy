@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import {
   FluentProvider,
   makeStyles,
@@ -7,6 +7,9 @@ import {
   MenuList,
   MenuPopover,
   MenuTrigger,
+  MenuGroup,
+  MenuGroupHeader,
+  MenuDivider,
   tokens,
   Toolbar as FluentToolbar,
   ToolbarButton,
@@ -24,7 +27,11 @@ import {
   WeatherMoonRegular,
   WeatherSunnyRegular,
   DocumentPdfRegular,
-  AppsRegular
+  AppsRegular,
+  DeleteRegular,
+  ArrowExportLtrRegular,
+  ArrowImportRegular,
+  EditRegular
 } from '@fluentui/react-icons'
 import PageView from './components/PageView'
 import PageTabs from './components/PageTabs'
@@ -35,6 +42,7 @@ import { useLayout } from './hooks/useLayout'
 import type { AiSettings, ThemeMode } from '../../shared/settings'
 import type { Block, LayoutDoc } from '../../shared/layout'
 import { PRESETS, buildDocFromPreset } from '../../shared/presets'
+import { toPresetBlocks, fromPresetBlocks, type UserPreset } from '../../shared/user-preset'
 
 declare global {
   interface Window {
@@ -51,6 +59,12 @@ declare global {
       saveDoc(doc: LayoutDoc): Promise<string | null>
       openDoc(): Promise<LayoutDoc | null>
       exportPdf(): Promise<string | null>
+      listUserPresets(): Promise<UserPreset[]>
+      saveUserPreset(preset: UserPreset): Promise<'saved' | 'name-conflict' | 'error'>
+      deleteUserPreset(name: string): Promise<boolean>
+      renameUserPreset(oldName: string, newName: string): Promise<boolean>
+      exportUserPreset(name: string): Promise<string | null>
+      importUserPreset(): Promise<UserPreset | null>
     }
   }
 }
@@ -221,6 +235,66 @@ function App(): JSX.Element {
     if (preset) layout.loadDoc(buildDocFromPreset(preset))
   }
 
+  // ---- 用户自定义预设 ----
+  const [userPresets, setUserPresets] = useState<UserPreset[]>([])
+
+  const refreshUserPresets = useCallback(async (): Promise<void> => {
+    const list = await window.briefy?.listUserPresets()
+    setUserPresets(list ?? [])
+  }, [])
+
+  useEffect(() => {
+    void refreshUserPresets()
+  }, [refreshUserPresets])
+
+  /** 把当前版面另存为预设（含提示词与工具配置，剥离生成内容） */
+  const saveAsPreset = async (): Promise<void> => {
+    if (!window.briefy) return
+    const name = window.prompt('给这个预设起个名字：')
+    if (!name?.trim()) return
+    const preset: UserPreset = {
+      version: 1,
+      name: name.trim(),
+      savedAt: new Date().toISOString(),
+      pages: layout.doc.pages.map((p) => ({ blocks: toPresetBlocks(p.blocks) }))
+    }
+    const result = await window.briefy.saveUserPreset(preset)
+    if (result === 'saved') void refreshUserPresets()
+    else window.alert(result === 'name-conflict' ? '同名预设已存在' : '保存失败')
+  }
+
+  /** 套用用户预设 */
+  const applyUserPreset = (preset: UserPreset): void => {
+    layout.loadDoc({
+      version: 1,
+      title: preset.name,
+      pages: preset.pages.map((p) => ({ id: crypto.randomUUID(), blocks: fromPresetBlocks(p.blocks) }))
+    })
+  }
+
+  const deleteUserPreset = async (name: string): Promise<void> => {
+    if (!window.confirm(`删除预设「${name}」？`)) return
+    await window.briefy?.deleteUserPreset(name)
+    void refreshUserPresets()
+  }
+
+  const renameUserPreset = async (oldName: string): Promise<void> => {
+    const newName = window.prompt('新名称：', oldName)
+    if (!newName?.trim() || newName === oldName) return
+    await window.briefy?.renameUserPreset(oldName, newName.trim())
+    void refreshUserPresets()
+  }
+
+  const exportUserPreset = async (name: string): Promise<void> => {
+    await window.briefy?.exportUserPreset(name)
+  }
+
+  const importUserPreset = async (): Promise<void> => {
+    const preset = await window.briefy?.importUserPreset()
+    if (preset) void refreshUserPresets()
+    else if (preset === null) void refreshUserPresets() // 取消或失败都刷新一下
+  }
+
   // 打印模式：仅渲染所有页面的干净版式，供 printToPDF 截取
   if (PRINT_MODE) {
     return (
@@ -288,16 +362,67 @@ function App(): JSX.Element {
             </MenuTrigger>
             <MenuPopover>
               <MenuList>
-                {PRESETS.map((preset) => (
-                  <MenuItem key={preset.id} onClick={() => applyPreset(preset.id)}>
-                    <div>
-                      <div>{preset.name}</div>
-                      <div style={{ fontSize: 11, color: tokens.colorNeutralForeground3 }}>
-                        {preset.description}
+                <MenuGroup>
+                  <MenuGroupHeader>内置预设</MenuGroupHeader>
+                  {PRESETS.map((preset) => (
+                    <MenuItem key={preset.id} onClick={() => applyPreset(preset.id)}>
+                      <div>
+                        <div>{preset.name}</div>
+                        <div style={{ fontSize: 11, color: tokens.colorNeutralForeground3 }}>
+                          {preset.description}
+                        </div>
                       </div>
-                    </div>
+                    </MenuItem>
+                  ))}
+                </MenuGroup>
+                <MenuDivider />
+                <MenuGroup>
+                  <MenuGroupHeader>我的预设</MenuGroupHeader>
+                  <MenuItem icon={<SaveRegular />} onClick={() => void saveAsPreset()}>
+                    把当前版面存为预设…
                   </MenuItem>
-                ))}
+                  <MenuItem icon={<ArrowImportRegular />} onClick={() => void importUserPreset()}>
+                    导入预设…
+                  </MenuItem>
+                  {userPresets.length > 0 && <MenuDivider />}
+                  {userPresets.map((preset) => (
+                    <MenuItem key={preset.name} onClick={() => applyUserPreset(preset)}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 200 }}>
+                        <span style={{ flex: 1 }}>{preset.name}</span>
+                        <span
+                          role="button"
+                          aria-label={`重命名 ${preset.name}`}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            void renameUserPreset(preset.name)
+                          }}
+                        >
+                          <EditRegular fontSize={14} />
+                        </span>
+                        <span
+                          role="button"
+                          aria-label={`导出 ${preset.name}`}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            void exportUserPreset(preset.name)
+                          }}
+                        >
+                          <ArrowExportLtrRegular fontSize={14} />
+                        </span>
+                        <span
+                          role="button"
+                          aria-label={`删除 ${preset.name}`}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            void deleteUserPreset(preset.name)
+                          }}
+                        >
+                          <DeleteRegular fontSize={14} style={{ color: '#c50f1f' }} />
+                        </span>
+                      </div>
+                    </MenuItem>
+                  ))}
+                </MenuGroup>
               </MenuList>
             </MenuPopover>
           </Menu>
@@ -371,7 +496,7 @@ function App(): JSX.Element {
           onRemove={layout.removePage}
         />
 
-        <StatusBar version="0.6.0" hasApiKey={hasApiKey} />
+        <StatusBar version="0.7.0" hasApiKey={hasApiKey} />
 
         <SettingsDialog
           open={settingsOpen}

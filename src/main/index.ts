@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { registerSettingsIpc } from './settings'
 import { registerDocIpc } from './doc'
 import { registerExportIpc } from './export'
+import { registerUserPresetIpc } from './user-presets'
 
 /** electron-vite 产物扩展名随版本/配置变化（.js 或 .mjs），按实际存在的文件取用 */
 function preloadPath(): string {
@@ -46,6 +47,7 @@ app.whenReady().then(() => {
   registerSettingsIpc()
   registerDocIpc()
   registerExportIpc()
+  registerUserPresetIpc()
   createMainWindow()
 
   app.on('activate', () => {
