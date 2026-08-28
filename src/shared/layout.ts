@@ -1,5 +1,17 @@
 import type { AiSettings } from './settings'
 
+/** 区块槽位角色（P4 槽位化：给坐标赋予语义，AI 按角色理解职责） */
+export type BlockRole = 'headline' | 'stats' | 'body' | 'briefs' | 'custom'
+
+/** 各角色的职责描述（喂给 AI）与默认布局特征 */
+export const ROLE_DEFS: Record<BlockRole, { name: string; duty: string }> = {
+  headline: { name: '头条', duty: '全宽镇版头条：写最有分量的导语，克制而有力，不要细节堆砌。' },
+  stats: { name: '数据', duty: '数据窗口：优先用 :::stat 统计卡呈现 2-3 个关键数字，少写散文。' },
+  body: { name: '正文', duty: '深度正文：可用 ## 小标题分段展开，与头条内容承接但不重复。' },
+  briefs: { name: '快讯', duty: '快讯栏：每条一句话，用 **日期/主体** 开头，短促密集。' },
+  custom: { name: '自定义', duty: '' }
+}
+
 /** 区块内容形式（text-image/image 需生图服务，已按用户要求移除） */
 export type BlockKind = 'text' | 'table'
 
