@@ -37,6 +37,15 @@ export interface LayoutPrefs {
   }
 }
 
+/** 自定义角色（用户反馈：支持添加新角色）：
+ *  用户自建角色库（名称+职责），槽位选"自定义"角色时可指定角色名，AI 按该职责写作 */
+export interface CustomRole {
+  /** 角色名（唯一标识，如"情感专栏"） */
+  name: string
+  /** 职责描述（喂给 AI） */
+  duty: string
+}
+
 /** 编辑部三段式（ROADMAP Q2）：选题→写作→审稿；默认关 = 旧逐槽独立流程 */
 export interface EditorialPrefs {
   /** 启用编辑部模式 */
@@ -67,6 +76,8 @@ export interface AiSettings {
   roleDuties?: Partial<Record<string, string>>
   /** 编辑部三段式（ROADMAP Q2） */
   editorial?: EditorialPrefs
+  /** 自定义角色库（用户反馈：支持添加新角色） */
+  customRoles?: CustomRole[]
 }
 
 export type ThemeMode = 'light' | 'dark'

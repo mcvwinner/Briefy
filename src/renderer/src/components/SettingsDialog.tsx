@@ -138,6 +138,8 @@ function SettingsDialog({ open, settings, onClose, onSaved }: SettingsDialogProp
   const [layout, setLayout] = useState<LayoutPrefs>({})
   const [stylePrompt, setStylePrompt] = useState('')
   const [roleDuties, setRoleDuties] = useState<Partial<Record<string, string>>>({})
+  /** 自定义角色库（用户反馈：支持添加新角色） */
+  const [customRoleList, setCustomRoleList] = useState<{ name: string; duty: string }[]>([])
   const [editorialEnabled, setEditorialEnabled] = useState(false)
   const [reviewModel, setReviewModel] = useState('')
   /** 职责编辑器展开的角色 */
@@ -154,6 +156,7 @@ function SettingsDialog({ open, settings, onClose, onSaved }: SettingsDialogProp
       setLayout(settings.layout ?? {})
       setStylePrompt(settings.stylePrompt ?? '')
       setRoleDuties(settings.roleDuties ?? {})
+      setCustomRoleList(settings.customRoles ?? [])
       setEditorialEnabled(settings.editorial?.enabled === true)
       setReviewModel(settings.editorial?.reviewModel ?? '')
     }
@@ -172,6 +175,7 @@ function SettingsDialog({ open, settings, onClose, onSaved }: SettingsDialogProp
       layout,
       stylePrompt: stylePrompt.trim() || undefined,
       roleDuties: Object.keys(roleDuties).length > 0 ? roleDuties : undefined,
+      customRoles: customRoleList.filter((c) => c.name.trim() && c.duty.trim()),
       editorial: {
         enabled: editorialEnabled,
         reviewModel: reviewModel.trim() || undefined
@@ -373,6 +377,46 @@ function SettingsDialog({ open, settings, onClose, onSaved }: SettingsDialogProp
                 })}
               </Accordion>
               <p className={styles.hint}>点击角色名展开编辑；每个角色的自定义职责互相独立、可同时生效。</p>
+            </Field>
+            <Field label={`自定义角色库（${customRoleList.length} 个）—— 新建你自己的角色，槽位选"自定义"时按名引用，AI 按其职责写作`}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                {customRoleList.map((cr, i) => (
+                  <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: '4px', padding: '6px', border: `1px dashed ${tokens.colorNeutralStroke2}`, borderRadius: tokens.borderRadiusMedium }}>
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      <Input
+                        size="small"
+                        style={{ width: '140px' }}
+                        placeholder="角色名（如：情感专栏）"
+                        value={cr.name}
+                        onChange={(_, d) =>
+                          setCustomRoleList(customRoleList.map((c, j) => (j === i ? { ...c, name: d.value } : c)))
+                        }
+                      />
+                      <Button
+                        icon={<DeleteRegular />}
+                        size="small"
+                        appearance="subtle"
+                        onClick={() => setCustomRoleList(customRoleList.filter((_, j) => j !== i))}
+                      />
+                    </div>
+                    <Textarea
+                      className={styles.dutyArea}
+                      placeholder="职责描述：这个角色写什么、怎么写（喂给 AI）"
+                      value={cr.duty}
+                      onChange={(_, d) =>
+                        setCustomRoleList(customRoleList.map((c, j) => (j === i ? { ...c, duty: d.value } : c)))
+                      }
+                    />
+                  </div>
+                ))}
+                <Button
+                  size="small"
+                  appearance="subtle"
+                  onClick={() => setCustomRoleList([...customRoleList, { name: '', duty: '' }])}
+                >
+                  + 添加自定义角色
+                </Button>
+              </div>
             </Field>
           </>
         )

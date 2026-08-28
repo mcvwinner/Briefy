@@ -51,7 +51,7 @@ import InputDialog from './components/InputDialog'
 import { useLayout } from './hooks/useLayout'
 import type { AiSettings, InfoSource, ThemeMode } from '../../shared/settings'
 import type { LayoutDoc, Slot, SlotRole } from '../../shared/layout'
-import { ROLE_DEFS } from '../../shared/layout'
+import { ROLE_DEFS, resolveRoleName } from '../../shared/layout'
 import { PRESETS, buildDocFromPreset } from '../../shared/presets'
 import { toPresetSlots, fromPresetSlots, type UserPreset } from '../../shared/user-preset'
 
@@ -249,7 +249,7 @@ function App(): React.JSX.Element {
           window.briefy!.generateSlot(
             generationId,
             extraPrompt ? `${slot.prompt}\n\n${extraPrompt}` : slot.prompt,
-            ROLE_DEFS[slot.role].name,
+            resolveRoleName(slot),
             slot.kind,
             slot.tools ?? ['getCurrentTime'],
             docContext,
@@ -307,7 +307,7 @@ function App(): React.JSX.Element {
       const docContext = {
         title: layout.doc.title,
         outline: layout.doc.pages.flatMap((page, pi) =>
-          page.slots.map((s) => ({ position: `第${pi + 1}页·${ROLE_DEFS[s.role].name}`, prompt: s.prompt }))
+          page.slots.map((s) => ({ position: `第${pi + 1}页·${resolveRoleName(s)}`, prompt: s.prompt }))
         )
       }
       await runSlotTask(slot, index, docContext)
@@ -349,7 +349,7 @@ function App(): React.JSX.Element {
         title: layout.doc.title,
         outline: layout.doc.pages.flatMap((page, pi) =>
           page.slots.map((s) => ({
-            position: `第${pi + 1}页·${ROLE_DEFS[s.role].name}`,
+            position: `第${pi + 1}页·${resolveRoleName(s)}`,
             prompt: s.prompt
           }))
         )
@@ -370,7 +370,7 @@ function App(): React.JSX.Element {
         try {
           const planId = crypto.randomUUID()
           inFlightRef.current.add(planId)
-          const outline = tasks.map((t) => ({ index: t.index, role: ROLE_DEFS[t.slot.role].name, prompt: t.slot.prompt }))
+          const outline = tasks.map((t) => ({ index: t.index, role: resolveRoleName(t.slot), prompt: t.slot.prompt }))
           const flatSources = [...new Map(tasks.flatMap((t) => t.slot.sources ?? []).map((s) => [s.url, s])).values()]
           const plan = await window.briefy.planIssue(planId, outline, flatSources)
           for (const a of plan.assignments) {
@@ -407,7 +407,7 @@ function App(): React.JSX.Element {
           inFlightRef.current.add(reviewId)
           const articles = tasks.map((t) => ({
             index: t.index,
-            role: ROLE_DEFS[t.slot.role].name,
+            role: resolveRoleName(t.slot),
             content: layout.doc.pages.flatMap((p) => p.slots).find((s) => s.id === t.slot.id)?.content ?? ''
           }))
           const valid = articles.filter((a) => a.content.trim())
@@ -418,7 +418,7 @@ function App(): React.JSX.Element {
                 comments: review.comments
                   .map((c) => {
                     const task = tasks.find((t) => t.index === c.index)
-                    return task ? { ...c, role: ROLE_DEFS[task.slot.role].name } : null
+                    return task ? { ...c, role: resolveRoleName(task.slot) } : null
                   })
                   .filter((c): c is { index: number; role: string; problem: string; instruction: string } => c !== null)
               })
@@ -445,7 +445,7 @@ function App(): React.JSX.Element {
       const docContext = {
         title: layout.doc.title,
         outline: layout.doc.pages.flatMap((page, pi) =>
-          page.slots.map((s) => ({ position: `第${pi + 1}页·${ROLE_DEFS[s.role].name}`, prompt: s.prompt }))
+          page.slots.map((s) => ({ position: `第${pi + 1}页·${resolveRoleName(s)}`, prompt: s.prompt }))
         )
       }
       await runSlotTask(task.slot, comment.index, docContext, `【主编审稿指令】${comment.problem}。${comment.instruction}`)
@@ -596,6 +596,7 @@ function App(): React.JSX.Element {
                 selectedSlotId={null}
                 onSelectSlot={() => undefined}
                 prefs={settings?.layout}
+                customRoles={settings?.customRoles}
                 docTitle={printDoc.title}
                 pageNo={pi + 1}
                 totalPages={printDoc.pages.length}
@@ -800,6 +801,7 @@ function App(): React.JSX.Element {
                   onSelectSlot={layout.selectSlot}
                   onOverflow={layout.growSlotOverflow}
                   prefs={settings?.layout}
+                  customRoles={settings?.customRoles}
                   docTitle={layout.doc.title}
                   pageNo={layout.doc.pages.findIndex((p) => p.id === page.id) + 1}
                   totalPages={layout.doc.pages.length}
@@ -809,6 +811,7 @@ function App(): React.JSX.Element {
           <PropertiesPanel
             slot={layout.selection?.slot ?? null}
             commonSources={settings?.sources ?? []}
+            customRoles={settings?.customRoles ?? []}
             onAddCommonSources={(srcs) => {
               if (!settings) return
               // 去重合并进常用源库并持久化（按 name+url 判重）

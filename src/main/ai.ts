@@ -114,11 +114,17 @@ function buildSlotPrompt(
   // P6b：角色职责可被用户自定义覆盖（settings.roleDuties 以角色 key 存储默认生效）
   const roleKey = (Object.entries(ROLE_DEFS).find(([, v]) => v.name === role)?.[0] ?? role) as SlotRole
   const customDuty = settings?.roleDuties?.[roleKey]
+  // 用户反馈：自定义角色库——role 名不在内置六角色时，从 customRoles 查职责
+  const libraryDuty = settings?.customRoles?.find((c) => c.name === role)?.duty
   const roleSection = customDuty?.trim()
     ? `槽位职责（用户自定义）：${customDuty.trim()}`
-    : roleDef?.duty
-      ? `槽位职责：${roleDef.duty}`
-      : ''
+    : libraryDuty?.trim()
+      ? `槽位职责（自定义角色）：${libraryDuty.trim()}`
+      : roleDef?.duty
+        ? `槽位职责：${roleDef.duty}`
+        : roleDef
+          ? ''
+          : `槽位职责（自定义角色）：你是报纸上的「${role}」栏目作者，按栏目定位写作。`
   const styleSection = settings?.stylePrompt?.trim()
     ? `本报风格（全局调性，所有内容需符合）：${settings.stylePrompt.trim()}`
     : ''

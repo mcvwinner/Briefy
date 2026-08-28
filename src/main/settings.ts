@@ -31,6 +31,11 @@ export async function readSettings(): Promise<AiSettings> {
           : undefined
       const editorial =
         s.editorial && typeof s.editorial === 'object' ? (s.editorial as AiSettings['editorial']) : undefined
+      const customRoles = Array.isArray(s.customRoles)
+        ? (s.customRoles.filter(
+            (r) => r && typeof r === 'object' && typeof (r as { name?: unknown }).name === 'string'
+          ) as AiSettings['customRoles'])
+        : undefined
       return {
         apiKey: typeof apiKey === 'string' ? apiKey : '',
         baseUrl: typeof baseUrl === 'string' ? baseUrl : '',
@@ -41,7 +46,8 @@ export async function readSettings(): Promise<AiSettings> {
         layout,
         stylePrompt,
         roleDuties,
-        editorial
+        editorial,
+        customRoles
       }
     }
   } catch {

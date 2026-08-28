@@ -6,6 +6,7 @@ import {
   AccordionPanel,
   Button,
   Checkbox,
+  Combobox,
   Dropdown,
   Field,
   Input,
@@ -17,8 +18,8 @@ import {
 import { DeleteRegular, WandRegular } from '@fluentui/react-icons'
 import { useState } from 'react'
 import type { Slot, SlotKind, SlotRole, ToolId } from '../../../shared/layout'
-import { ROLE_DEFS } from '../../../shared/layout'
-import type { InfoSource } from '../../../shared/settings'
+import { ROLE_DEFS, resolveRoleName } from '../../../shared/layout'
+import type { CustomRole, InfoSource } from '../../../shared/settings'
 import { listWidgetInstances, updateWidgetInstance } from '../utils/widget-edit'
 import { WIDGET_REGISTRY } from '../../../shared/widgets'
 
@@ -117,6 +118,8 @@ interface PropertiesPanelProps {
   commonSources: InfoSource[]
   /** 把槽位上的源收藏进常用库（自动去重持久化） */
   onAddCommonSources: (srcs: InfoSource[]) => void
+  /** 自定义角色库（custom 角色时的角色名建议） */
+  customRoles: CustomRole[]
   /** 仅生成此槽位 */
   onGenerateSlot?: (slot: Slot) => void
   onChange: (patch: Partial<Slot>) => void
@@ -128,6 +131,7 @@ interface PropertiesPanelProps {
 function PropertiesPanel({
   slot,
   commonSources,
+  customRoles,
   onAddCommonSources,
   onGenerateSlot,
   onChange,
@@ -162,7 +166,7 @@ function PropertiesPanel({
 
       <Field label="槽位角色（决定 AI 的职责）" className={styles.fieldGap}>
         <Dropdown
-          value={ROLE_DEFS[slot.role].name}
+          value={resolveRoleName(slot, customRoles)}
           selectedOptions={[slot.role]}
           onOptionSelect={(_, data) => onChange({ role: data.optionValue as SlotRole })}
         >
@@ -173,6 +177,28 @@ function PropertiesPanel({
           ))}
         </Dropdown>
       </Field>
+
+      {slot.role === 'custom' && (
+        <Field
+          label="自定义角色名（从角色库选或直接输入）"
+          className={styles.fieldGap}
+        >
+          <Combobox
+            value={slot.customRoleName ?? ''}
+            placeholder={customRoles.length > 0 ? '从角色库选择或输入新名' : '输入角色名（可在设置中建角色库）'}
+            freeform
+            selectedOptions={slot.customRoleName ? [slot.customRoleName] : []}
+            onOptionSelect={(_, data) => onChange({ customRoleName: (data.optionValue as string) || undefined })}
+            onChange={(e) => onChange({ customRoleName: e.target.value.trim() || undefined })}
+          >
+            {customRoles.map((c) => (
+              <Option key={c.name} value={c.name} text={c.name}>
+                {c.name}
+              </Option>
+            ))}
+          </Combobox>
+        </Field>
+      )}
 
       <Field label="提示词（这一格要什么）" className={styles.fieldGap}>
         <Textarea

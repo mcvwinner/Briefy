@@ -1,4 +1,4 @@
-import type { AiSettings, InfoSource } from './settings'
+import type { AiSettings, CustomRole, InfoSource } from './settings'
 
 /**
  * 槽位化数据模型（v2）——Block 体系的替代者。
@@ -42,6 +42,8 @@ export interface Slot {
   tools: ToolId[]
   /** 本槽位挂载的信息源（内联副本，随文档/预设保存；生成时主进程直接抓取） */
   sources: InfoSource[]
+  /** 自定义角色名（role === 'custom' 时生效；对应 settings.customRoles 中的名称） */
+  customRoleName?: string
   /** AI 产出：控件协议文本 */
   content?: string
   status: SlotStatus
@@ -253,6 +255,29 @@ function migrateBlock(b: LegacyBlock): Slot {
     sources: [],
     status: 'empty'
   }
+}
+
+/** 解析槽位的显示/生成用角色名：内置角色用中文名；自定义角色用其指定名（缺省"自定义"）。
+ *  customRole 库中匹配项的 duty 优先作为生成职责 */
+export function resolveRoleName(
+  slot: Pick<Slot, 'role' | 'customRoleName'>,
+  customRoles?: CustomRole[]
+): string {
+  if (slot.role !== 'custom') return ROLE_DEFS[slot.role].name
+  const fromLib = customRoles?.find((c) => c.name === slot.customRoleName)
+  return slot.customRoleName?.trim() || fromLib?.name || '自定义'
+}
+
+/** 解析槽位生成用职责：内置角色取 ROLE_DEFS/用户覆盖；自定义角色取角色库匹配项 */
+export function resolveSlotDuty(
+  slot: Pick<Slot, 'role' | 'customRoleName'>,
+  settings?: Pick<AiSettings, 'roleDuties' | 'customRoles'>
+): string {
+  if (slot.role !== 'custom') {
+    return settings?.roleDuties?.[slot.role] ?? ROLE_DEFS[slot.role].duty
+  }
+  const fromLib = settings?.customRoles?.find((c) => c.name === slot.customRoleName)
+  return fromLib?.duty ?? settings?.roleDuties?.custom ?? ''
 }
 
 /** 信息源归一化：新格式（内联 sources）原样保留；旧格式槽位的 sourceIds 从常用源库解析为内联副本（失效 id 丢弃） */

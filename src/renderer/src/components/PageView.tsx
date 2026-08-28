@@ -2,7 +2,8 @@ import type * as React from 'react'
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { makeStyles, tokens } from '@fluentui/react-components'
 import type { Page, Slot } from '../../../shared/layout'
-import type { LayoutPrefs } from '../../../shared/settings'
+import { resolveRoleName } from '../../../shared/layout'
+import type { CustomRole, LayoutPrefs } from '../../../shared/settings'
 import { renderInlineMarkdown } from '../utils/markdown'
 import { parseContent } from '../../../shared/parse'
 import { renderContentNodes } from '../utils/widgets-render'
@@ -174,12 +175,14 @@ const useStyles = makeStyles({
  *  触发上层 flowSlots/paginate 把放不下的槽位自动腾挪到下一页（收敛：overflow 只在再超出时增大） */
 function SlotBox({
   slot,
+  roleName,
   selected,
   onPointerDown,
   onOverflow,
   children
 }: {
   slot: Slot
+  roleName: string
   selected: boolean
   onPointerDown: (e: React.PointerEvent) => void
   onOverflow?: (slotId: string, deltaMm: number) => void
@@ -205,20 +208,10 @@ function SlotBox({
       onPointerEnter={() => setHovered(true)}
       onPointerLeave={() => setHovered(false)}
     >
-      <span className={styles.roleBadge}>{ROLE_LABELS[slot.role] ?? slot.role}</span>
+      <span className={styles.roleBadge}>{roleName}</span>
       {children}
     </div>
   )
-}
-
-/** 角色中文名（与 ROLE_DEFS 同步，避免渲染层直接依赖循环） */
-const ROLE_LABELS: Record<string, string> = {
-  headline: '头条',
-  body: '正文',
-  stats: '数据',
-  briefs: '快讯',
-  notice: '提示',
-  custom: '自定义'
 }
 
 interface PageViewProps {
@@ -229,6 +222,8 @@ interface PageViewProps {
   onOverflow?: (slotId: string, deltaMm: number) => void
   /** 版式偏好（页边距/栏距/字体/字号/行距/黑白优先/页眉页脚）；缺省 = 内置默认 */
   prefs?: LayoutPrefs
+  /** 自定义角色库（徽章显示自定义角色名） */
+  customRoles?: CustomRole[]
   /** 报头文字（页眉开启 title 时显示，取 doc.title） */
   docTitle?: string
   /** 页码（页脚 pageNo 开启时显示：第 X 页 · 共 N 页） */
@@ -253,7 +248,7 @@ function groupColumns(slots: Slot[]): { full: Slot[]; left: Slot[]; right: Slot[
 }
 
 /** A4 页面：全宽槽位纵向流 + 左右半栏真实并排 */
-function PageView({ page, selectedSlotId, onSelectSlot, onOverflow, prefs, docTitle, pageNo, totalPages }: PageViewProps): React.JSX.Element {
+function PageView({ page, selectedSlotId, onSelectSlot, onOverflow, prefs, customRoles, docTitle, pageNo, totalPages }: PageViewProps): React.JSX.Element {
   const styles = useStyles()
   const { full, left, right } = groupColumns(page.slots)
 
@@ -269,6 +264,7 @@ function PageView({ page, selectedSlotId, onSelectSlot, onOverflow, prefs, docTi
     <SlotBox
       key={slot.id}
       slot={slot}
+      roleName={resolveRoleName(slot, customRoles)}
       selected={selectedSlotId === slot.id}
       onPointerDown={() => onSelectSlot(slot.id)}
       onOverflow={onOverflow}
