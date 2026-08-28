@@ -148,6 +148,132 @@ const useStyles = makeStyles({
 /** 打印/导出模式：URL 带 ?print=1 时为 true，只渲染纯净版面 */
 const PRINT_MODE = new URLSearchParams(window.location.search).has('print')
 
+/** AI 工作台浮动面板（心跳改进）：右下角实时展示流式输出，可直读内容、可终止 */
+const HB_POS_KEY = 'briefy-hb-pos'
+
+function HeartbeatPanel({
+  phase,
+  text,
+  onCancel
+}: {
+  phase: string | null
+  text: string
+  onCancel: () => void
+}): React.JSX.Element {
+  const boxRef = useRef<HTMLDivElement>(null)
+  const preRef = useRef<HTMLPreElement>(null)
+  /** 拖拽位置（持久化在 localStorage；null = 默认右下角） */
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(() => {
+    try {
+      const raw = localStorage.getItem(HB_POS_KEY)
+      if (raw) {
+        const p = JSON.parse(raw) as { x: number; y: number }
+        if (typeof p.x === 'number' && typeof p.y === 'number') return p
+      }
+    } catch {
+      // 忽略脏数据
+    }
+    return null
+  })
+  const posRef = useRef(pos)
+  posRef.current = pos
+
+  useEffect(() => {
+    if (preRef.current) preRef.current.scrollTop = preRef.current.scrollHeight
+  }, [text])
+
+  /** 头部拖拽：mousemove 更新位置（clamp 视口内），mouseup 持久化 */
+  const onHeaderMouseDown = (e: React.MouseEvent): void => {
+    const rect = boxRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const dx = e.clientX - rect.left
+    const dy = e.clientY - rect.top
+    const move = (ev: MouseEvent): void => {
+      const x = Math.min(Math.max(ev.clientX - dx, 0), window.innerWidth - rect.width)
+      const y = Math.min(Math.max(ev.clientY - dy, 0), window.innerHeight - 48)
+      const next = { x, y }
+      posRef.current = next
+      setPos(next)
+    }
+    const up = (): void => {
+      window.removeEventListener('mousemove', move)
+      window.removeEventListener('mouseup', up)
+      try {
+        localStorage.setItem(HB_POS_KEY, JSON.stringify(posRef.current))
+      } catch {
+        // 忽略持久化失败
+      }
+    }
+    window.addEventListener('mousemove', move)
+    window.addEventListener('mouseup', up)
+  }
+
+  return (
+    <div
+      ref={boxRef}
+      style={{
+        position: 'fixed',
+        ...(pos ? { left: pos.x, top: pos.y } : { right: '308px', bottom: '40px' }),
+        width: '380px',
+        zIndex: 1000,
+        backgroundColor: 'var(--colorNeutralBackground1, #fff)',
+        border: '1px solid var(--colorNeutralStroke2, #dde1e6)',
+        borderRadius: '8px',
+        boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
+        overflow: 'hidden'
+      }}
+    >
+      <div
+        onMouseDown={onHeaderMouseDown}
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          padding: '6px 10px',
+          backgroundColor: 'var(--colorNeutralBackground3, #f5f5f5)',
+          fontSize: '12px',
+          fontWeight: 600,
+          cursor: 'move',
+          userSelect: 'none'
+        }}
+      >
+        <span>🪶 AI 工作台 · {phase ?? '生成中'}</span>
+        <button
+          onClick={onCancel}
+          style={{
+            border: 'none',
+            background: 'none',
+            color: '#c50f1f',
+            cursor: 'pointer',
+            fontSize: '12px',
+            fontWeight: 600
+          }}
+        >
+          终止
+        </button>
+      </div>
+      <pre
+        ref={preRef}
+        style={{
+          margin: 0,
+          padding: '8px 10px',
+          maxHeight: '200px',
+          overflowY: 'auto',
+          fontSize: '11px',
+          lineHeight: 1.5,
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-all',
+          fontFamily: 'Consolas, monospace',
+          color: 'var(--colorNeutralForeground1, #333)'
+        }}
+      >
+        {text}
+        <span className="hb-cursor">▌</span>
+      </pre>
+    </div>
+  )
+}
+
 function App(): React.JSX.Element {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settings, setSettings] = useState<AiSettings | null>(null)
@@ -202,12 +328,12 @@ function App(): React.JSX.Element {
   const [reviewState, setReviewState] = useState<{
     comments: { index: number; role: string; problem: string; instruction: string }[]
   } | null>(null)
-  /** AI 输出心跳（流式增量尾部，供状态栏实时显示防"卡住"观感） */
+  /** AI 输出心跳（流式增量累积全文尾部，供浮动工作台面板实时展示防"卡住"观感） */
   const [heartbeat, setHeartbeat] = useState<string | null>(null)
   const heartbeatBufRef = useRef('')
   useEffect(() => {
     const off = window.briefy?.onHeartbeat?.((_id, delta) => {
-      heartbeatBufRef.current = (heartbeatBufRef.current + delta).slice(-120)
+      heartbeatBufRef.current = (heartbeatBufRef.current + delta).slice(-4000)
       setHeartbeat(heartbeatBufRef.current)
     })
     return off
@@ -386,7 +512,8 @@ function App(): React.JSX.Element {
         }
       }
 
-      setPhase(editorial && assignmentMap.size > 0 ? '写作中…' : null)
+      // 写作阶段（编辑部降级或旧流程统一显示，避免阶段展示跳变）
+      setPhase('写作中…')
 
       const CONCURRENCY = 3
       let cursor = 0
@@ -855,7 +982,12 @@ function App(): React.JSX.Element {
           onRemove={layout.removePage}
         />
 
-        <StatusBar version="0.15.0" hasApiKey={hasApiKey} phase={phase} heartbeat={heartbeat} />
+        <StatusBar version="0.15.0" hasApiKey={hasApiKey} phase={phase} />
+
+        {/* AI 工作台浮动面板：实时展示流式输出（心跳改进：可直读内容） */}
+        {generating && heartbeat !== null && (
+          <HeartbeatPanel phase={phase} text={heartbeat} onCancel={() => void generateAll()} />
+        )}
 
         <SettingsDialog
           open={settingsOpen}

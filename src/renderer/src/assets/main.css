@@ -266,6 +266,43 @@
   display: inline-block;
 }
 
+/* 头条三段式（ROADMAP Q4）：引题 → 主标 → 副题 */
+.headline-block {
+  padding: 2px 0;
+}
+.headline-kicker {
+  font-size: 9pt;
+  letter-spacing: 0.2em;
+  color: var(--colorBrandForeground1, #0f6cbd);
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.headline-title {
+  font-size: 17pt;
+  font-weight: 800;
+  line-height: 1.25;
+  color: #111;
+  margin-bottom: 5px;
+}
+.headline-sub {
+  font-size: 10pt;
+  font-style: italic;
+  color: #555;
+  border-top: 1px solid #e0e0e0;
+  padding-top: 4px;
+}
+
+/* AI 工作台心跳光标闪烁 */
+.hb-cursor {
+  animation: hb-blink 1s step-start infinite;
+  color: var(--colorBrandForeground1, #0f6cbd);
+}
+@keyframes hb-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
 /* 来源署名（ROADMAP Q1）：槽位尾部小字，吃版式字号与灰阶 */
 .slot-sources {
   margin-top: 4px;

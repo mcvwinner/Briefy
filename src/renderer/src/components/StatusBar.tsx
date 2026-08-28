@@ -26,31 +26,14 @@ interface StatusBarProps {
   hasApiKey: boolean
   /** 当前编辑部阶段（选题中/写作中/审稿中）；空 = 就绪 */
   phase?: string | null
-  /** AI 输出心跳（流式增量尾部） */
-  heartbeat?: string | null
 }
 
 /** Fluent 风格状态栏：浅灰底 + 语义色状态图标（Office 同款布局语言） */
-function StatusBar({ version, hasApiKey, phase, heartbeat }: StatusBarProps): React.JSX.Element {
+function StatusBar({ version, hasApiKey, phase }: StatusBarProps): React.JSX.Element {
   const styles = useStyles()
   return (
     <footer className={styles.bar}>
       <Text size={200}>{phase ?? '就绪'}</Text>
-      {heartbeat && (
-        <span
-          className={styles.item}
-          style={{
-            color: tokens.colorNeutralForeground3,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-            flex: 1,
-            minWidth: 0
-          }}
-        >
-          <Text size={200}>✍ {heartbeat}</Text>
-        </span>
-      )}
       <span className={`${styles.item} ${hasApiKey ? styles.ready : styles.warn}`}>
         {hasApiKey ? <CheckmarkCircleRegular /> : <ErrorCircleRegular />}
         <Text size={200}>{hasApiKey ? 'AI 已配置' : 'AI 未配置'}</Text>

@@ -110,6 +110,19 @@ function buildSlotPrompt(
     ].join('\n'),
     table: '输出一个表格。使用 | 分隔的 Markdown 表格语法，首行为表头；单元格内可用 **加粗** 强调关键数字。'
   }
+  // 头条专属：引题/主标/副题三段式（ROADMAP Q4 报纸细节，渲染层按此结构特化排版）
+  const headlineFormat = [
+    '本槽是报纸头条，输出格式（严格遵循，共 2-3 行，每行独占一行）：',
+    '第一行：引题——铺垫背景的短句，15 字内，结尾不加标点；',
+    '第二行：# 主标题——全报最有力的那句话，25 字内（保留开头的 # 和空格）；',
+    '第三行（可选）：副题——一句补充说明，40 字内。',
+    '不要输出其他任何内容（不要加粗、不要小标题、不要控件、不要正文）。',
+    '',
+    '输出示例（严格模仿此结构）：',
+    '全球算力竞赛进入能耗时代',
+    '# 算力成为新的通用货币',
+    '推理成本年降九成，平台话语权随电价重写'
+  ].join('\n')
   const roleDef = Object.values(ROLE_DEFS).find((d) => d.name === role)
   // P6b：角色职责可被用户自定义覆盖（settings.roleDuties 以角色 key 存储默认生效）
   const roleKey = (Object.entries(ROLE_DEFS).find(([, v]) => v.name === role)?.[0] ?? role) as SlotRole
@@ -143,8 +156,10 @@ function buildSlotPrompt(
     timelyAnchor,
     `控件建议：${ROLE_WIDGET_HINTS[roleKey] ?? '按栏目定位选用合适控件（见上方控件清单）'}`,
     `要求：内容紧凑、信息密度高、符合报纸文风。全文严格控制在 ${wordLimit} 字以内——这是版面物理容量的硬性上限，超出会被裁切；宁可精炼勿冗长，写完即止。`,
-    `内容形式：${kindRules[kind] ?? kindRules.text}`,
-    `槽位主题要求：${prompt}`
+    `内容形式：${kind === 'headline' ? headlineFormat : kindRules[kind] ?? kindRules.text}`,
+    `槽位主题要求：${prompt}`,
+    // 头条三段式是硬性格式约束，置于提示词末尾以最强权重（AI 对末尾指令遵循率最高）
+    ...(kind === 'headline' ? ['【重要】再强调一次输出格式：只输出 2-3 行——第一行引题、第二行“# 主标题”、第三行可选副题。不要输出小标题、控件或正文段落。'] : [])
   ]
   return sections.filter(Boolean).join('\n')
 }
@@ -432,10 +447,10 @@ const PLAN_SCHEMA = z.object({
   assignments: z
     .array(
       z.object({
-        index: z.number().int(),
-        angle: z.string(),
-        quota: z.number().int().optional(),
-        avoid: z.string().optional()
+        index: z.coerce.number().int().catch(-1),
+        angle: z.string().catch(''),
+        quota: z.coerce.number().int().optional().catch(undefined),
+        avoid: z.string().optional().catch(undefined)
       })
     )
     .min(1)
@@ -454,9 +469,9 @@ const ROLE_WIDGET_HINTS: Record<string, string> = {
 const REVIEW_SCHEMA = z.object({
   comments: z.array(
     z.object({
-      index: z.number().int(),
-      problem: z.string(),
-      instruction: z.string()
+      index: z.coerce.number().int().catch(-1),
+      problem: z.string().catch(''),
+      instruction: z.string().catch('')
     })
   )
 })

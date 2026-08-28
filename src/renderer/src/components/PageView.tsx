@@ -40,9 +40,35 @@ function renderTable(rows: string[][]): React.JSX.Element {
   )
 }
 
-/** 区块内容渲染：表格类解析为真 table，其余走控件协议流。
+/** 头条三段式解析（ROADMAP Q4）：引题行 + # 主标行 + 副题行。
+ *  带合理性校验：主标超过 40 字或副题超过 80 字视为 AI 未守格式 → 返回 null 回退普通渲染（无损兜底） */
+function parseHeadline(text: string): { kicker: string; title: string; sub: string } | null {
+  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean)
+  // 主标行兼容多级 #（## 也常见）；控件行（:::）不参与
+  const titleIdx = lines.findIndex((l) => /^#{1,6} /.test(l) && !l.startsWith(':::'))
+  if (titleIdx === -1) return null
+  const title = lines[titleIdx].replace(/^#{1,6}\s+/, '').trim()
+  const sub = lines.slice(titleIdx + 1).join(' ')
+  if (!title || title.length > 40 || sub.length > 80) return null
+  return { kicker: lines.slice(0, titleIdx).join(' '), title, sub }
+}
+
+/** 区块内容渲染：表格/图表解析为真 table/图表，其余走控件协议流。
  *  纯文字槽也嗅探表格：AI 即使在 text 槽返回了 Markdown 表格（未按 kind 约定）也正常渲染 */
-function SlotContent({ kind, content }: { kind: string; content: string }): React.JSX.Element {
+function SlotContent({ kind, content, role }: { kind: string; content: string; role?: string }): React.JSX.Element {
+  // 头条特化排版：引题（上，小字距宽）→ 主标（大粗）→ 副题（下，斜体灰）；不守格式则回退普通渲染
+  if (role === 'headline') {
+    const h = parseHeadline(content)
+    if (h) {
+      return (
+        <div className="headline-block">
+          {h.kicker && <div className="headline-kicker">{h.kicker}</div>}
+          <div className="headline-title">{h.title}</div>
+          {h.sub && <div className="headline-sub">{h.sub}</div>}
+        </div>
+      )
+    }
+  }
   const isTableLike =
     kind === 'table' || content.split('\n').filter((l) => l.trim().startsWith('|')).length >= 3
   if (isTableLike) {
@@ -279,7 +305,7 @@ function PageView({ page, selectedSlotId, onSelectSlot, onOverflow, prefs, custo
     >
       {slot.status === 'done' && slot.content ? (
         <div className={styles.slotContent} style={slot.role === 'body' && slot.kind === 'text' ? bodyStyle : { fontFamily: font, fontSize, lineHeight }}>
-          <SlotContent kind={slot.kind} content={slot.content} />
+          <SlotContent kind={slot.kind} content={slot.content} role={slot.role} />
           {/* 来源署名（ROADMAP Q1）：挂在槽位上的源即视为本期事实依据 */}
           {(slot.sources?.length ?? 0) > 0 && (
             <div className="slot-sources">来源：{slot.sources.map((s) => s.name).join('、')}</div>
