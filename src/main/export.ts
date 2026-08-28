@@ -1,26 +1,53 @@
 import { BrowserWindow, dialog, ipcMain } from 'electron'
 import { writeFile } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
+import type { LayoutDoc } from '../shared/layout'
 
 /**
- * PDF 导出：新建一个隐藏窗口加载当前渲染页的"打印视图"，用 printToPDF 输出。
- * 打印视图由渲染进程通过 sessionStorage 标记 + URL 参数触发干净版式（无工具栏/面板）。
+ * PDF 导出：把当前文档传给隐藏打印窗口，逐页渲染真实 A4 版式后 printToPDF。
+ * 链路：export:pdf(doc) 暂存文档 → 打印窗口（带 preload）加载 ?print=1 →
+ * 渲染进程 export:get-doc 取文档渲染 A4 页 → export:render-ready 通知 → printToPDF。
+ * 页面物理尺寸由 CSS 保证（sheet 固定 210×297mm + overflow hidden），内容永不突破纸张。
  */
+
+/** 待导出文档（主进程暂存，打印窗口渲染进程经 IPC 取走） */
+let pendingDoc: LayoutDoc | null = null
+/** 打印视图渲染完成的通知回调 */
+let notifyRenderReady: (() => void) | null = null
+
+/** electron-vite 产物扩展名随版本/配置变化（.js 或 .mjs），按实际存在的文件取用 */
+function preloadPath(): string {
+  const base = join(__dirname, '../preload/index')
+  for (const ext of ['.mjs', '.js']) {
+    if (existsSync(base + ext)) return base + ext
+  }
+  return base + '.mjs'
+}
+
 export function registerExportIpc(): void {
-  ipcMain.handle('export:pdf', async () => {
-    const source = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed())
+  ipcMain.handle('export:pdf', async (_event, doc: LayoutDoc) => {
+    const source =
+      BrowserWindow.getAllWindows().find((w) => !w.isDestroyed() && !w.webContents.getURL().includes('print=1')) ??
+      BrowserWindow.getAllWindows().find((w) => !w.isDestroyed())
     if (!source) return null
 
-    // 取当前页面 URL，加 print=1 参数进入打印模式
-    const currentUrl = source.webContents.getURL()
+    pendingDoc = doc ?? null
+    // 渲染完成通知（5s 超时兜底：即使渲染卡住也照常导出，不无限等待）
+    const ready = new Promise<void>((resolve) => {
+      notifyRenderReady = resolve
+      setTimeout(resolve, 5000)
+    })
 
     const printWin = new BrowserWindow({
       show: false,
-      webPreferences: { preload: undefined, sandbox: true }
+      webPreferences: { preload: preloadPath(), sandbox: false }
     })
     try {
-      const url = new URL(currentUrl)
+      const url = new URL(source.webContents.getURL())
       url.searchParams.set('print', '1')
       await printWin.loadURL(url.toString())
+      await ready
 
       const pdfData = await printWin.webContents.printToPDF({
         pageSize: 'A4',
@@ -28,7 +55,7 @@ export function registerExportIpc(): void {
         margins: { top: 0, bottom: 0, left: 0, right: 0 }
       })
 
-      const win = BrowserWindow.getAllWindows()[0]
+      const win = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed() && w !== printWin) ?? source
       const result = await dialog.showSaveDialog(win, {
         title: '导出 PDF',
         defaultPath: '报纸.pdf',
@@ -38,7 +65,17 @@ export function registerExportIpc(): void {
       await writeFile(result.filePath, pdfData)
       return result.filePath
     } finally {
+      notifyRenderReady = null
+      pendingDoc = null
       if (!printWin.isDestroyed()) printWin.destroy()
     }
+  })
+
+  // 打印窗口渲染进程：取待导出文档
+  ipcMain.handle('export:get-doc', () => pendingDoc)
+  // 打印窗口渲染进程：A4 页面渲染完成
+  ipcMain.handle('export:render-ready', () => {
+    notifyRenderReady?.()
+    return true
   })
 }

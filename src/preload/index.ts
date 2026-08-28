@@ -19,7 +19,10 @@ const api = {
   devExportState: (): Promise<unknown> => ipcRenderer.invoke('dev:export-state'),
   saveDoc: (doc: LayoutDoc): Promise<string | null> => ipcRenderer.invoke('doc:save', doc),
   openDoc: (): Promise<LayoutDoc | null> => ipcRenderer.invoke('doc:open'),
-  exportPdf: (): Promise<string | null> => ipcRenderer.invoke('export:pdf'),
+  exportPdf: (doc: LayoutDoc): Promise<string | null> => ipcRenderer.invoke('export:pdf', doc),
+  /** 打印窗口：取待导出文档 / A4 页渲染完成后通知主进程 */
+  getExportDoc: (): Promise<LayoutDoc | null> => ipcRenderer.invoke('export:get-doc'),
+  renderReady: (): Promise<boolean> => ipcRenderer.invoke('export:render-ready'),
   listUserPresets: (): Promise<UserPreset[]> => ipcRenderer.invoke('user-preset:list'),
   saveUserPreset: (preset: UserPreset): Promise<'saved' | 'name-conflict' | 'error'> =>
     ipcRenderer.invoke('user-preset:save', preset),

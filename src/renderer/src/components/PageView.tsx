@@ -1,10 +1,11 @@
 import type * as React from 'react'
-import { useState, type ReactNode } from 'react'
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { makeStyles, tokens } from '@fluentui/react-components'
 import type { Page, Slot } from '../../../shared/layout'
 import { renderInlineMarkdown } from '../utils/markdown'
 import { parseContent } from '../../../shared/parse'
 import { renderContentNodes } from '../utils/widgets-render'
+import { pxToMm } from '../utils/units'
 
 /** 解析 Markdown 表格为行列数组；非表格内容返回 null */
 function parseMarkdownTable(text: string): string[][] | null {
@@ -51,8 +52,11 @@ const useStyles = makeStyles({
     boxShadow: tokens.shadow16,
     flexShrink: 0,
     width: '210mm',
-    minHeight: '297mm',
-    padding: '15mm'
+    // 物理纸张极限：A4 高度固定，内容永不突破纸张（超出部分被裁剪，
+    // 同时 SlotBox 测量回写 overflow 触发分页腾挪，正常情况下内容会被自动移到下一页）
+    height: '297mm',
+    padding: '15mm',
+    overflow: 'hidden'
   },
   columnsRow: {
     display: 'flex',
@@ -121,22 +125,35 @@ const useStyles = makeStyles({
   }
 })
 
-/** 单个槽位渲染（高度随内容自然流式撑开——CSS 文档流天然自适应，无需 JS 测量） */
+/** 单个槽位渲染。测量实际渲染高度，超出预估（estHeight+overflow）时回写，
+ *  触发上层 flowSlots/paginate 把放不下的槽位自动腾挪到下一页（收敛：overflow 只在再超出时增大） */
 function SlotBox({
   slot,
   selected,
   onPointerDown,
+  onOverflow,
   children
 }: {
   slot: Slot
   selected: boolean
   onPointerDown: (e: React.PointerEvent) => void
+  onOverflow?: (slotId: string, deltaMm: number) => void
   children: ReactNode
 }): React.JSX.Element {
   const styles = useStyles()
   const [hovered, setHovered] = useState(false)
+  const ref = useRef<HTMLDivElement | null>(null)
+  // 每次渲染后测量（无依赖数组）：内容/宽度变化都重测；不超限时不触发 setState，自然收敛
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el || !onOverflow) return
+    const actualMm = pxToMm(el.offsetHeight)
+    const limit = slot.estHeight + (slot.overflow ?? 0)
+    if (actualMm > limit + 1) onOverflow(slot.id, Math.ceil(actualMm - limit))
+  })
   return (
     <div
+      ref={ref}
       className={`${styles.slot} ${selected ? styles.slotSelected : ''} ${hovered ? styles.slotHover : ''}`}
       data-slot-id={slot.id}
       onPointerDown={onPointerDown}
@@ -163,6 +180,8 @@ interface PageViewProps {
   page: Page
   selectedSlotId: string | null
   onSelectSlot: (id: string | null) => void
+  /** 槽位实际高度超出预估时回写（触发重新流式排布与分页）；打印视图不传 */
+  onOverflow?: (slotId: string, deltaMm: number) => void
 }
 
 /**
@@ -182,7 +201,7 @@ function groupColumns(slots: Slot[]): { full: Slot[]; left: Slot[]; right: Slot[
 }
 
 /** A4 页面：全宽槽位纵向流 + 左右半栏真实并排 */
-function PageView({ page, selectedSlotId, onSelectSlot }: PageViewProps): React.JSX.Element {
+function PageView({ page, selectedSlotId, onSelectSlot, onOverflow }: PageViewProps): React.JSX.Element {
   const styles = useStyles()
   const { full, left, right } = groupColumns(page.slots)
 
@@ -192,6 +211,7 @@ function PageView({ page, selectedSlotId, onSelectSlot }: PageViewProps): React.
       slot={slot}
       selected={selectedSlotId === slot.id}
       onPointerDown={() => onSelectSlot(slot.id)}
+      onOverflow={onOverflow}
     >
       {slot.status === 'done' && slot.content ? (
         <div className={styles.slotContent}>

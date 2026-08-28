@@ -153,16 +153,18 @@
 }
 
 /* ---------- 打印/导出模式（?print=1，供 printToPDF 截取的干净版式） ---------- */
+/* 逐页渲染真实 A4 版式（PageView 的 sheet 是 210×297mm），每页强制分页，
+   物理尺寸由 sheet 自身保证，内容永不突破纸张 */
 .print-view {
-  position: relative;
   width: 210mm;
   background: #fff;
   color: #000;
 }
 
-.print-slot {
-  margin-bottom: 6mm;
-  font-size: 10pt;
-  line-height: 1.5;
-  overflow: hidden;
+.print-page {
+  break-after: page;
+}
+
+.print-page:last-child {
+  break-after: auto;
 }

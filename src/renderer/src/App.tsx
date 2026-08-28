@@ -64,7 +64,10 @@ declare global {
       devExportState(): Promise<unknown>
       saveDoc(doc: LayoutDoc): Promise<string | null>
       openDoc(): Promise<LayoutDoc | null>
-      exportPdf(): Promise<string | null>
+      exportPdf(doc: LayoutDoc): Promise<string | null>
+      /** 打印窗口：取待导出文档 / A4 页渲染完成后通知主进程 */
+      getExportDoc(): Promise<LayoutDoc | null>
+      renderReady(): Promise<boolean>
       listUserPresets(): Promise<UserPreset[]>
       saveUserPreset(preset: UserPreset): Promise<'saved' | 'name-conflict' | 'error'>
       deleteUserPreset(name: string): Promise<boolean>
@@ -122,11 +125,6 @@ const useStyles = makeStyles({
 
 /** 打印/导出模式：URL 带 ?print=1 时为 true，只渲染纯净版面 */
 const PRINT_MODE = new URLSearchParams(window.location.search).has('print')
-
-/** 打印视图中的槽位内容渲染（纯文本流，无需控件交互） */
-function SlotContentRender({ slot }: { slot: Slot }): React.JSX.Element {
-  return <div className="print-slot">{slot.content ?? ''}</div>
-}
 
 function App(): React.JSX.Element {
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -244,9 +242,9 @@ function App(): React.JSX.Element {
     if (doc) layout.loadDoc(doc, settings?.sources ?? [])
   }
 
-  /** 导出当前文档为 PDF */
+  /** 导出当前文档为 PDF（把文档传给打印窗口逐页渲染 A4） */
   const exportPdf = async (): Promise<void> => {
-    await window.briefy?.exportPdf()
+    await window.briefy?.exportPdf(layout.doc)
   }
 
   /** 套用排版预设 */
@@ -315,22 +313,29 @@ function App(): React.JSX.Element {
     else if (preset === null) void refreshUserPresets() // 取消或失败都刷新一下
   }
 
+  // 打印模式：从主进程取待导出文档，逐页渲染真实 A4 版式（与编辑器所见一致），
+  // 渲染完成后通知主进程执行 printToPDF
+  const [printDoc, setPrintDoc] = useState<LayoutDoc | null>(null)
+  useEffect(() => {
+    if (!PRINT_MODE) return
+    void window.briefy?.getExportDoc?.().then((doc) => {
+      if (!doc) return
+      setPrintDoc(doc)
+      // 等一拍让 A4 页面完成测量/绘制后再通知
+      setTimeout(() => void window.briefy?.renderReady?.(), 100)
+    })
+  }, [])
+
   // 打印模式：仅渲染所有页面的干净版式，供 printToPDF 截取
   if (PRINT_MODE) {
     return (
       <FluentProvider theme={webLightTheme}>
         <div className="print-view">
-          {layout.doc.pages.flatMap((page) =>
-            page.slots.map((slot) => (
-              <div
-                key={slot.id}
-                className="print-block"
-                style={{ left: 0, width: '100%' }}
-              >
-                <SlotContentRender slot={slot} />
-              </div>
-            ))
-          )}
+          {(printDoc?.pages ?? []).map((page) => (
+            <div key={page.id} className="print-page">
+              <PageView page={page} selectedSlotId={null} onSelectSlot={() => undefined} />
+            </div>
+          ))}
         </div>
       </FluentProvider>
     )
@@ -511,6 +516,7 @@ function App(): React.JSX.Element {
                   page={page}
                   selectedSlotId={layout.selectedSlotId}
                   onSelectSlot={layout.selectSlot}
+                  onOverflow={layout.growSlotOverflow}
                 />
               ))}
           </div>

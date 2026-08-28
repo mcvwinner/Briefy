@@ -82,6 +82,23 @@ export function useLayout() {
     [doc]
   )
 
+  /** 槽位实际渲染高度超出预估时回写 overflow（PageView 测量触发），
+   *  重新流式排布 + 自动分页，把放不下的槽位腾挪到下一页 */
+  const growSlotOverflow = useCallback(
+    (slotId: string, deltaMm: number): void => {
+      const pages = doc.pages.map((p) => {
+        if (!p.slots.some((s) => s.id === slotId)) return p
+        const slots = p.slots.map((s) =>
+          s.id === slotId ? { ...s, overflow: (s.overflow ?? 0) + deltaMm } : s
+        )
+        return { ...p, slots: flowSlots(slots) }
+      })
+      const nextPages = paginate(pages)
+      setDoc({ ...doc, pages: nextPages })
+    },
+    [doc]
+  )
+
   const removeSlot = useCallback(
     (pageId: string, slotId: string): void => {
       updatePage(pageId, (page) => {
@@ -157,6 +174,7 @@ export function useLayout() {
     updateSlot,
     setSlotWidth,
     removeSlot,
+    growSlotOverflow,
     addPage,
     removePage,
     newDoc,
