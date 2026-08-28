@@ -333,9 +333,9 @@ function PageView({ page, selectedSlotId, onSelectSlot, onOverflow, prefs, docTi
 
   return (
     <div className={styles.sheet} style={{ padding: margin, filter }}>
-      {header?.title && docTitle && (
+      {header?.title && (docTitle || header.text) && (
         <div className={styles.sheetHeader} style={{ left: margin, right: margin }}>
-          <span className={styles.sheetHeaderTitle}>{docTitle}</span>
+          <span className={styles.sheetHeaderTitle}>{header.text?.trim() || docTitle}</span>
           {header?.date && <span>{today}</span>}
         </div>
       )}

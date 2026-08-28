@@ -28,7 +28,13 @@ export interface LayoutPrefs {
   /** 黑白优先：灰阶渲染（兼容黑白打印机，导出 PDF 同样灰阶） */
   grayscale?: boolean
   /** 页眉页脚（P6c）：报头/日期/页码，绘制在页边距区不占内容高 */
-  header?: { title?: boolean; date?: boolean; pageNo?: boolean }
+  header?: {
+    title?: boolean
+    date?: boolean
+    pageNo?: boolean
+    /** 报头文字（留空 = 用文档标题） */
+    text?: string
+  }
 }
 
 /** AI 服务配置 + 外观偏好，持久化在应用 userData 目录 */

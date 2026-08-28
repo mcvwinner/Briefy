@@ -253,12 +253,22 @@ function SettingsDialog({ open, settings, onClose, onSaved }: SettingsDialogProp
             <Field label="页眉页脚（绘制在页边距区，不占内容空间）">
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                 <Checkbox
-                  label="报头（文档标题，页眉居左）"
+                  label="报头（页眉居左，可自定义文字）"
                   checked={layout.header?.title === true}
                   onChange={(_, d) =>
                     setLayout({ ...layout, header: { ...layout.header, title: d.checked === true } })
                   }
                 />
+                {layout.header?.title === true && (
+                  <Input
+                    size="small"
+                    placeholder="报头文字（留空 = 用文档标题）"
+                    value={layout.header.text ?? ''}
+                    onChange={(_, d) =>
+                      setLayout({ ...layout, header: { ...layout.header, text: d.value } })
+                    }
+                  />
+                )}
                 <Checkbox
                   label="日期（页眉居右）"
                   checked={layout.header?.date === true}
