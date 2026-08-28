@@ -18,6 +18,7 @@ import { DeleteRegular } from '@fluentui/react-icons'
 import { useState } from 'react'
 import type { Slot, SlotKind, SlotRole, ToolId } from '../../../shared/layout'
 import { ROLE_DEFS } from '../../../shared/layout'
+import type { InfoSource } from '../../../shared/settings'
 import { listWidgetInstances, updateWidgetInstance } from '../utils/widget-edit'
 import { WIDGET_REGISTRY } from '../../../shared/widgets'
 
@@ -50,7 +51,11 @@ const useStyles = makeStyles({
     borderLeftWidth: '1px',
     borderLeftStyle: 'solid',
     borderLeftColor: tokens.colorNeutralStroke2,
-    flexShrink: 0
+    flexShrink: 0,
+    // 关键：面板自身可滚动（控件手风琴展开超高时不再撑破工作区）
+    alignSelf: 'stretch',
+    minHeight: 0,
+    overflowY: 'auto'
   },
   title: {
     margin: '0 0 12px',
@@ -69,13 +74,15 @@ const useStyles = makeStyles({
 
 interface PropertiesPanelProps {
   slot: Slot | null
+  /** 全部已配置的信息源（设置页维护） */
+  sources: InfoSource[]
   onChange: (patch: Partial<Slot>) => void
   onSetWidth: (widthMode: 'full' | 'half-left' | 'half-right' | 'sidebar') => void
   onRemove: () => void
 }
 
-/** 右侧属性面板：编辑选中槽位的角色、提示词、宽度、形式、工具 */
-function PropertiesPanel({ slot, onChange, onSetWidth, onRemove }: PropertiesPanelProps): React.JSX.Element {
+/** 右侧属性面板：编辑选中槽位的角色、提示词、宽度、形式、工具、信息源 */
+function PropertiesPanel({ slot, sources, onChange, onSetWidth, onRemove }: PropertiesPanelProps): React.JSX.Element {
   const styles = useStyles()
 
   if (!slot) {
@@ -168,6 +175,23 @@ function PropertiesPanel({ slot, onChange, onSetWidth, onRemove }: PropertiesPan
       </Field>
 
       <WidgetEditor slot={slot} onChange={onChange} />
+
+      {sources.length > 0 && (
+        <Field label="挂载信息源（生成时抓取内容作事实依据）" className={styles.fieldGap}>
+          {sources.map((src) => (
+            <Checkbox
+              key={src.id}
+              label={src.name}
+              checked={(slot.sourceIds ?? []).includes(src.id)}
+              onChange={(_, data) => {
+                const current = slot.sourceIds ?? []
+                const next = data.checked ? [...current, src.id] : current.filter((s) => s !== src.id)
+                onChange({ sourceIds: next })
+              }}
+            />
+          ))}
+        </Field>
+      )}
 
       <Button
         className={styles.deleteBtn}

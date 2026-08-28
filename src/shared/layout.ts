@@ -40,6 +40,8 @@ export interface Slot {
   prompt: string
   /** 允许此槽位使用的 AI 工具 */
   tools: ToolId[]
+  /** 关联的信息源 ID 列表（生成时主进程抓取源内容注入提示词） */
+  sourceIds: string[]
   /** AI 产出：控件协议文本 */
   content?: string
   status: SlotStatus
@@ -85,6 +87,7 @@ export function createSlot(role: SlotRole, region: Slot['region'], estHeight: nu
     kind: 'text',
     prompt: '',
     tools: ['getCurrentTime'],
+    sourceIds: [],
     status: 'empty'
   }
 }
@@ -198,6 +201,7 @@ function migrateBlock(b: LegacyBlock): Slot {
     kind: b.kind === 'table' ? 'table' : 'text',
     prompt: typeof b.prompt === 'string' ? b.prompt : '',
     tools: Array.isArray(b.tools) ? (b.tools.filter((t) => t !== 'readReference') as ToolId[]) : ['getCurrentTime'],
+    sourceIds: [],
     status: 'empty'
   }
 }

@@ -58,8 +58,10 @@ declare global {
         kind: string,
         tools: string[],
         docContext: unknown,
-        slotIndex: number
+        slotIndex: number,
+        sourceIds: string[]
       ): Promise<{ content: string }>
+      devExportState(): Promise<unknown>
       saveDoc(doc: LayoutDoc): Promise<string | null>
       openDoc(): Promise<LayoutDoc | null>
       exportPdf(): Promise<string | null>
@@ -154,7 +156,7 @@ function App(): React.JSX.Element {
       await window.briefy?.saveSettings?.(updated)
     } else {
       // settings 未加载（如纯浏览器预览）：只改本地状态让 UI 生效
-      setSettings({ apiKey: '', baseUrl: '', model: '', theme: next, tavilyKey: '' })
+      setSettings({ apiKey: '', baseUrl: '', model: '', theme: next, tavilyKey: '', sources: [] })
     }
   }
 
@@ -209,7 +211,8 @@ function App(): React.JSX.Element {
               task.slot.kind,
               task.slot.tools ?? ['getCurrentTime'],
               docContext,
-              task.index
+              task.index,
+              task.slot.sourceIds ?? []
             )
             layout.updateSlot(task.pageId, task.slot.id, { content, status: 'done' })
           } catch (err) {
@@ -502,6 +505,7 @@ function App(): React.JSX.Element {
           </div>
           <PropertiesPanel
             slot={layout.selection?.slot ?? null}
+            sources={settings?.sources ?? []}
             onChange={(patch) => {
               if (layout.selection) {
                 layout.updateSlot(layout.selection.page.id, layout.selection.slot.id, patch)
@@ -528,7 +532,7 @@ function App(): React.JSX.Element {
           onRemove={layout.removePage}
         />
 
-        <StatusBar version="0.8.2" hasApiKey={hasApiKey} />
+        <StatusBar version="0.9.0" hasApiKey={hasApiKey} />
 
         <SettingsDialog
           open={settingsOpen}

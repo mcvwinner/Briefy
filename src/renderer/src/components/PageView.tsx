@@ -54,12 +54,21 @@ const useStyles = makeStyles({
     minHeight: '297mm',
     padding: '15mm'
   },
+  columnsRow: {
+    display: 'flex',
+    gap: '8px',
+    alignItems: 'flex-start',
+    marginBottom: '8px'
+  },
+  column: {
+    flex: 1,
+    minWidth: 0
+  },
   slot: {
     position: 'relative',
     backgroundColor: tokens.colorNeutralBackground1,
     border: `1px solid ${tokens.colorNeutralStroke2}`,
     borderRadius: tokens.borderRadiusMedium,
-    marginBottom: '8px',
     cursor: 'pointer'
   },
   slotSelected: {
@@ -136,36 +145,88 @@ interface PageViewProps {
   onSelectSlot: (id: string | null) => void
 }
 
-/** A4 页面：按文档流渲染槽位（流式排布已在数据层完成） */
+/**
+ * 槽位分列：按 region.x 归入左列/右列（宽度>150 的全宽槽位独立占一行）。
+ * 左右两列真实并排——宽度模式才有实际意义。
+ */
+function groupColumns(slots: Slot[]): { full: Slot[]; left: Slot[]; right: Slot[] } {
+  const full: Slot[] = []
+  const left: Slot[] = []
+  const right: Slot[] = []
+  for (const slot of slots) {
+    if (slot.region.width > 150) full.push(slot)
+    else if (slot.region.x < 60) left.push(slot)
+    else right.push(slot)
+  }
+  return { full, left, right }
+}
+
+/** A4 页面：全宽槽位纵向流 + 左右半栏真实并排 */
 function PageView({ page, selectedSlotId, onSelectSlot }: PageViewProps): React.JSX.Element {
   const styles = useStyles()
-  return (
-    <div className={styles.sheet}>
-      {page.slots.map((slot) => (
-        <SlotBox
-          key={slot.id}
-          slot={slot}
-          selected={selectedSlotId === slot.id}
-          onPointerDown={() => onSelectSlot(slot.id)}
-        >
-          {slot.status === 'done' && slot.content ? (
-            <div className={styles.slotContent}>
-              <SlotContent kind={slot.kind} content={slot.content} />
-            </div>
-          ) : slot.status === 'generating' ? (
-            <div className={styles.slotEmpty}>生成中…</div>
-          ) : slot.status === 'error' ? (
-            <div className={styles.slotError}>{slot.content}</div>
-          ) : (
-            <div className={styles.slotEmpty}>
-              {slot.prompt ? slot.prompt.slice(0, 40) : '空槽位（在右侧填写提示词）'}
-            </div>
-          )}
-          {slot.status === 'generating' && <span className={styles.slotStatus}>⟳</span>}
-        </SlotBox>
-      ))}
-    </div>
+  const { full, left, right } = groupColumns(page.slots)
+
+  const renderSlot = (slot: Slot): React.JSX.Element => (
+    <SlotBox
+      key={slot.id}
+      slot={slot}
+      selected={selectedSlotId === slot.id}
+      onPointerDown={() => onSelectSlot(slot.id)}
+    >
+      {slot.status === 'done' && slot.content ? (
+        <div className={styles.slotContent}>
+          <SlotContent kind={slot.kind} content={slot.content} />
+        </div>
+      ) : slot.status === 'generating' ? (
+        <div className={styles.slotEmpty}>生成中…</div>
+      ) : slot.status === 'error' ? (
+        <div className={styles.slotError}>{slot.content}</div>
+      ) : (
+        <div className={styles.slotEmpty}>
+          {slot.prompt ? slot.prompt.slice(0, 40) : '空槽位（在右侧填写提示词）'}
+        </div>
+      )}
+      {slot.status === 'generating' && <span className={styles.slotStatus}>⟳</span>}
+    </SlotBox>
   )
+
+  // 有左右栏时：full 槽位中位于半栏槽位之前的与半栏区并排组织
+  // 简化模型：full 槽位按序渲染；遇到首个半栏槽位时进入"双栏区"，双栏区结束后继续 full 流
+  const rows: React.JSX.Element[] = []
+  let i = 0
+  let fi = 0
+  let li = 0
+  let ri = 0
+  let inColumns = false
+  while (fi < full.length || li < left.length || ri < right.length) {
+    if (!inColumns && li < left.length) {
+      // 开启双栏区：渲染当前 full 之前的 full 已输出，先处理左右
+      inColumns = true
+      rows.push(
+        <div key={`cols-${li}-${ri}`} className={styles.columnsRow}>
+          <div className={styles.column}>{left[li] ? renderSlot(left[li++]) : null}</div>
+          <div className={styles.column}>{right[ri] ? renderSlot(right[ri++]) : null}</div>
+        </div>
+      )
+      continue
+    }
+    if (inColumns && (li < left.length || ri < right.length)) {
+      rows.push(
+        <div key={`cols-${li}-${ri}`} className={styles.columnsRow}>
+          <div className={styles.column}>{left[li] ? renderSlot(left[li++]) : null}</div>
+          <div className={styles.column}>{right[ri] ? renderSlot(right[ri++]) : null}</div>
+        </div>
+      )
+      continue
+    }
+    if (inColumns && li >= left.length && ri >= right.length) inColumns = false
+    if (fi < full.length) rows.push(renderSlot(full[fi++]))
+  }
+  // 无半栏槽位时的兜底：只渲染 full 流
+  if (rows.length === 0) full.forEach((s) => rows.push(renderSlot(s)))
+  void i
+
+  return <div className={styles.sheet}>{rows}</div>
 }
 
 export default PageView

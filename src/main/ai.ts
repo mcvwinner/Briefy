@@ -95,10 +95,13 @@ function buildSlotPrompt(
   const kindRules: Record<string, string> = {
     text: [
       '输出文本内容，可用以下表现力手段：',
-      '- **加粗** 强调关键数字与主体；',
-      '- "## 小标题" 分段（较长内容时）；',
+      '- **加粗** 强调关键数字与主体、*斜体* 做轻强调；',
+      '- "## 小标题" 分段（较长内容时），小标题要短而有力；',
       '- 首段首字会自动下沉放大，请把最重要的导语放开头；',
+      '- 表达节奏：长短句交错；关键结论前置，细节展开在后；',
+      '- 数字优先于形容词：能写 "+1.2%" 就不要写 "小幅上涨"；',
       buildWidgetPromptSection(),
+      '- 有信息源时必须忠于源内容，重要事实需在源中可查证；',
       '- 不要使用其他 Markdown 语法（列表/引用/链接等）。'
     ].join('\n'),
     table: '输出一个表格。使用 | 分隔的 Markdown 表格语法，首行为表头；单元格内可用 **加粗** 强调关键数字。'
@@ -131,7 +134,8 @@ export async function generateSlotContent(
   kind: string,
   enabledTools: ToolId[],
   docContext?: DocContext,
-  slotIndex = -1
+  slotIndex = -1,
+  sourceContents: { name: string; note: string; text: string }[] = []
 ): Promise<GenerateResult> {
   if (!settings.apiKey) throw new Error('未配置 API Key')
   if (!settings.model) throw new Error('未配置模型名')
@@ -150,7 +154,22 @@ export async function generateSlotContent(
     }
   }))
   const messages: unknown[] = [
-    { role: 'user', content: buildSlotPrompt(prompt, role, kind, docContext, slotIndex) }
+    {
+      role: 'user',
+      content: [
+        buildSlotPrompt(prompt, role, kind, docContext, slotIndex),
+        // 信息源注入：AI 基于真实抓取内容写作，而非凭记忆
+        ...(sourceContents.length > 0
+          ? [
+              '\n===== 信息源（今日真实内容摘录，请以此为主要事实依据，不要编造） =====',
+              ...sourceContents.map(
+                (s) => `[源：${s.name}${s.note ? `（${s.note}）` : ''}]\n${s.text.slice(0, 2000)}`
+              ),
+              '===== 信息源结束 ====='
+            ]
+          : [])
+      ].join('\n')
+    }
   ]
 
   // 上限放宽到 12：一轮可能并行发多个 tool_calls，每次请求算一步

@@ -11,13 +11,28 @@ import {
   DialogTrigger,
   Field,
   Input,
-  makeStyles
+  makeStyles,
+  tokens
 } from '@fluentui/react-components'
-import type { AiSettings } from '../../../shared/settings'
+import { DeleteRegular } from '@fluentui/react-icons'
+import type { AiSettings, InfoSource } from '../../../shared/settings'
 
 const useStyles = makeStyles({
   apiKeyInput: { width: '100%' },
-  hint: { marginTop: '4px', fontSize: '12px' }
+  hint: { marginTop: '4px', fontSize: '12px' },
+  sourceItem: {
+    display: 'flex',
+    gap: '6px',
+    alignItems: 'center',
+    marginBottom: '4px'
+  },
+  sourceInput: { flex: 1, minWidth: 0 },
+  sourceList: {
+    border: `1px dashed ${tokens.colorNeutralStroke2}`,
+    borderRadius: tokens.borderRadiusMedium,
+    padding: '8px',
+    marginTop: '4px'
+  }
 })
 
 interface SettingsDialogProps {
@@ -35,6 +50,7 @@ function SettingsDialog({ open, settings, onClose, onSaved }: SettingsDialogProp
   const [baseUrl, setBaseUrl] = useState('')
   const [model, setModel] = useState('')
   const [tavilyKey, setTavilyKey] = useState('')
+  const [sources, setSources] = useState<InfoSource[]>([])
 
   // 每次打开时同步当前已保存的配置
   useEffect(() => {
@@ -43,6 +59,7 @@ function SettingsDialog({ open, settings, onClose, onSaved }: SettingsDialogProp
       setBaseUrl(settings.baseUrl)
       setModel(settings.model)
       setTavilyKey(settings.tavilyKey ?? '')
+      setSources(settings.sources ?? [])
     }
   }, [open, settings])
 
@@ -54,7 +71,8 @@ function SettingsDialog({ open, settings, onClose, onSaved }: SettingsDialogProp
       baseUrl: baseUrl.trim(),
       model: model.trim(),
       theme: settings?.theme ?? 'light',
-      tavilyKey: tavilyKey.trim()
+      tavilyKey: tavilyKey.trim(),
+      sources: sources.filter((s) => s.name.trim() && s.url.trim())
     }
     try {
       if (window.briefy) {
@@ -109,8 +127,62 @@ function SettingsDialog({ open, settings, onClose, onSaved }: SettingsDialogProp
                 onChange={(_, data) => setTavilyKey(data.value)}
               />
             </Field>
+
+            <Field label={`信息源（${sources.length}）—— 生成时 AI 会抓取源内容作为事实依据`}>
+              <div className={styles.sourceList}>
+                {sources.map((src, i) => (
+                  <div key={src.id} className={styles.sourceItem}>
+                    <Input
+                      className={styles.sourceInput}
+                      size="small"
+                      placeholder="名称（如：C++ 安全周报）"
+                      value={src.name}
+                      onChange={(_, d) =>
+                        setSources(sources.map((s, j) => (j === i ? { ...s, name: d.value } : s)))
+                      }
+                    />
+                    <Input
+                      className={styles.sourceInput}
+                      size="small"
+                      placeholder="https://网址"
+                      value={src.url}
+                      onChange={(_, d) =>
+                        setSources(sources.map((s, j) => (j === i ? { ...s, url: d.value } : s)))
+                      }
+                    />
+                    <Input
+                      className={styles.sourceInput}
+                      size="small"
+                      placeholder="给 AI 的说明（可选）"
+                      value={src.note}
+                      onChange={(_, d) =>
+                        setSources(sources.map((s, j) => (j === i ? { ...s, note: d.value } : s)))
+                      }
+                    />
+                    <Button
+                      icon={<DeleteRegular />}
+                      size="small"
+                      appearance="subtle"
+                      onClick={() => setSources(sources.filter((_, j) => j !== i))}
+                    />
+                  </div>
+                ))}
+                <Button
+                  size="small"
+                  appearance="subtle"
+                  onClick={() =>
+                    setSources([
+                      ...sources,
+                      { id: crypto.randomUUID(), name: '', url: '', note: '' }
+                    ])
+                  }
+                >
+                  + 添加信息源
+                </Button>
+              </div>
+            </Field>
             <p className={styles.hint}>
-              支持任意 OpenAI 兼容接口。Key 仅保存在本机，不会上传。
+              支持任意 OpenAI 兼容接口。Key 与信息源仅保存在本机。
             </p>
           </DialogContent>
           <DialogActions>

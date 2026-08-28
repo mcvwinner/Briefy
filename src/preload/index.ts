@@ -12,9 +12,11 @@ const api = {
     kind: string,
     tools: string[],
     docContext: unknown,
-    slotIndex: number
+    slotIndex: number,
+    sourceIds: string[]
   ): Promise<{ content: string }> =>
-    ipcRenderer.invoke('ai:generate-slot', prompt, role, kind, tools, docContext, slotIndex),
+    ipcRenderer.invoke('ai:generate-slot', prompt, role, kind, tools, docContext, slotIndex, sourceIds),
+  devExportState: (): Promise<unknown> => ipcRenderer.invoke('dev:export-state'),
   saveDoc: (doc: LayoutDoc): Promise<string | null> => ipcRenderer.invoke('doc:save', doc),
   openDoc: (): Promise<LayoutDoc | null> => ipcRenderer.invoke('doc:open'),
   exportPdf: (): Promise<string | null> => ipcRenderer.invoke('export:pdf'),

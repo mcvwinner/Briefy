@@ -36,6 +36,7 @@ function buildSlots(specs: SlotSpec[]): Slot[] {
       kind: spec.kind ?? 'text',
       prompt: spec.prompt,
       tools: spec.tools ?? ['getCurrentTime'],
+      sourceIds: [],
       status: 'empty' as const
     }
   })
