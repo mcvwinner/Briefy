@@ -29,20 +29,25 @@ export function useLayout() {
     }))
   }, [])
 
-  /** 添加槽位：选角色 + 宽度模式，自动流式排布 + 自动分页 */
+  /** 添加槽位：选角色 + 宽度模式，自动流式排布 + 自动分页。
+   *  分页可能把新槽位挤到新页，添加后自动切到它实际所在的页并选中（否则用户以为没生效） */
   const addSlot = useCallback(
     (pageId: string, role: SlotRole, widthMode: WidthMode, prompt = ''): void => {
-      updatePage(pageId, (page) => {
-        const region = { ...regionFor(widthMode), y: MARGIN_MM }
-        const slot = createSlot(role, region, DEFAULT_SLOT_HEIGHT[role])
-        slot.prompt = prompt
-        const flowed = flowSlots([...page.slots, slot])
-        return { ...page, slots: flowed }
-      })
-      // 触发全局自动分页整理
-      setDoc((prev) => ({ ...prev, pages: paginate(prev.pages) }))
+      const region = { ...regionFor(widthMode), y: MARGIN_MM }
+      const slot = createSlot(role, region, DEFAULT_SLOT_HEIGHT[role])
+      if (prompt) slot.prompt = prompt
+      // 单次 setDoc：先 flowSlots 再 paginate，避免中间态与 updater 内生成随机页 id
+      const pages = doc.pages.map((p) =>
+        p.id === pageId ? { ...p, slots: flowSlots([...p.slots, slot]) } : p
+      )
+      const nextPages = paginate(pages)
+      setDoc({ ...doc, pages: nextPages })
+      // 定位新槽位实际所在页（可能因溢出被分到新页）并选中
+      const target = nextPages.find((p) => p.slots.some((s) => s.id === slot.id))
+      if (target) setCurrentPageId(target.id)
+      setSelectedSlotId(slot.id)
     },
-    [updatePage]
+    [doc]
   )
 
   const updateSlot = useCallback(
@@ -55,19 +60,24 @@ export function useLayout() {
     [updatePage]
   )
 
-  /** 改宽度模式：重推导 region + 重新流式排布 */
+  /** 改宽度模式：重推导 region + 重新流式排布 + 自动分页。
+   *  宽度改变可能引发分页移动，改后自动切到该槽位实际所在的页 */
   const setSlotWidth = useCallback(
     (pageId: string, slotId: string, widthMode: WidthMode): void => {
-      updatePage(pageId, (page) => {
-        const region = regionFor(widthMode)
-        const slots = page.slots.map((s) =>
+      const region = regionFor(widthMode)
+      const pages = doc.pages.map((p) => {
+        if (p.id !== pageId) return p
+        const slots = p.slots.map((s) =>
           s.id === slotId ? { ...s, region: { ...s.region, ...region } } : s
         )
-        return { ...page, slots: flowSlots(slots) }
+        return { ...p, slots: flowSlots(slots) }
       })
-      setDoc((prev) => ({ ...prev, pages: paginate(prev.pages) }))
+      const nextPages = paginate(pages)
+      setDoc({ ...doc, pages: nextPages })
+      const target = nextPages.find((p) => p.slots.some((s) => s.id === slotId))
+      if (target) setCurrentPageId(target.id)
     },
-    [updatePage]
+    [doc]
   )
 
   const removeSlot = useCallback(
@@ -82,23 +92,22 @@ export function useLayout() {
   )
 
   const addPage = useCallback((): void => {
-    setDoc((prev) => {
-      const page = createEmptyPage()
-      setCurrentPageId(page.id)
-      return { ...prev, pages: [...prev.pages, page] }
-    })
+    const page = createEmptyPage()
+    setDoc((prev) => ({ ...prev, pages: [...prev.pages, page] }))
+    setCurrentPageId(page.id)
   }, [])
 
-  const removePage = useCallback((pageId: string): void => {
-    setDoc((prev) => {
-      if (prev.pages.length <= 1) return prev // 至少保留一页
-      const idx = prev.pages.findIndex((p) => p.id === pageId)
-      const pages = prev.pages.filter((p) => p.id !== pageId)
+  const removePage = useCallback(
+    (pageId: string): void => {
+      if (doc.pages.length <= 1) return // 至少保留一页
+      const idx = doc.pages.findIndex((p) => p.id === pageId)
+      const pages = doc.pages.filter((p) => p.id !== pageId)
+      setDoc({ ...doc, pages })
       const next = pages[Math.min(idx, pages.length - 1)]
       setCurrentPageId(next.id)
-      return { ...prev, pages }
-    })
-  }, [])
+    },
+    [doc]
+  )
 
   /** 新建文档（清空为单页） */
   const newDoc = useCallback((): void => {

@@ -2,6 +2,15 @@
 
 本项目的所有显著变更记录于此。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [0.9.4] - 2026-08-28
+
+### 修复（槽位增删异常/疑似卡死）
+
+- **paginate 多栏误判**：自动分页改用槽位实际底部（y + 高度）判断溢出。此前用单一游标顺序累加，双栏布局下左右列 y 独立流动，游标被一栏拉高后会**把另一栏放得下的槽位误判为溢出**，搬去新页——套用预设（页面较满）后添加/删除槽位时槽位莫名消失、页签疯长，表现为"应用异常/卡死"；
+- **添加/改宽后自动定位**：新增槽位或切换宽度模式触发分页时，自动切换到该槽位实际所在的页并选中，不再"点了没反应"；
+- **setState 纯化**：addSlot/setSlotWidth/addPage/removePage 不再在 setState updater 内做分页或生成随机页 id（React StrictMode 双调用会产生不稳定 UUID），合并为单次状态更新；
+- Delete 键监听的 effect 依赖收窄为 selection 与 removeSlot，避免每次渲染重挂监听器。
+
 ## [0.9.3] - 2026-08-28
 
 ### 修复

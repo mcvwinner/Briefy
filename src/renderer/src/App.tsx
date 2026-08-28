@@ -161,14 +161,16 @@ function App(): React.JSX.Element {
   }
 
   // Delete 键删除选中槽位
+  const layoutSelection = layout.selection
+  const removeSlotFn = layout.removeSlot
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent): void => {
-      if (e.key !== 'Delete' || !layout.selection) return
-      layout.removeSlot(layout.selection.page.id, layout.selection.slot.id)
+      if (e.key !== 'Delete' || !layoutSelection) return
+      removeSlotFn(layoutSelection.page.id, layoutSelection.slot.id)
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [layout])
+  }, [layoutSelection, removeSlotFn])
 
   const hasApiKey = Boolean(settings?.apiKey)
 

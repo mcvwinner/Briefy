@@ -146,27 +146,34 @@ export function flowSlots(slots: Slot[]): Slot[] {
 }
 
 /**
- * 自动分页：把 y + 高度超出页面可容纳范围的槽位搬到新页。
- * 返回切分后的页面数组。
+ * 自动分页：把底部（y + 高度）超出页面可容纳范围的槽位搬到新页。
+ * 槽位的 y 由 flowSlots 按列排布，多栏下各列 y 独立流动，
+ * 因此直接用槽位自身 bottom 判断溢出，而不是单栏游标累加（后者会误判另一栏的槽位）。
+ * 搬入新页后重新流式排布；若新页仍溢出则继续拆分（收敛循环，保底轮次防意外）。
  */
 export function paginate(pages: Page[]): Page[] {
   const result: Page[] = []
+  const limit = PAGE_HEIGHT_MM - MARGIN_MM
   for (const page of pages) {
-    const kept: Slot[] = []
-    const overflow: Slot[] = []
-    let cursorY = MARGIN_MM
-    for (const slot of page.slots) {
-      const h = slot.estHeight + (slot.overflow ?? 0)
-      if (cursorY + h <= PAGE_HEIGHT_MM - MARGIN_MM || kept.length === 0) {
-        kept.push(slot)
-        cursorY = slot.region.y + h
-      } else {
-        overflow.push(slot)
+    let current: Page = { ...page, slots: flowSlots(page.slots) }
+    for (let round = 0; round < 50; round++) {
+      const kept: Slot[] = []
+      const overflow: Slot[] = []
+      for (const slot of current.slots) {
+        const bottom = slot.region.y + slot.estHeight + (slot.overflow ?? 0)
+        if (bottom <= limit || kept.length === 0) {
+          kept.push(slot)
+        } else {
+          overflow.push(slot)
+        }
       }
-    }
-    result.push({ ...page, slots: kept })
-    if (overflow.length > 0) {
-      result.push({ id: crypto.randomUUID(), slots: flowSlots(overflow) })
+      if (overflow.length === 0) {
+        result.push(current)
+        break
+      }
+      result.push({ ...current, slots: kept })
+      current = { id: crypto.randomUUID(), slots: flowSlots(overflow) }
+      if (round === 49) result.push(current) // 保底：达到轮次上限直接收尾
     }
   }
   return result
