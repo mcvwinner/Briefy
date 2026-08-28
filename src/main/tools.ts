@@ -17,7 +17,8 @@ export async function tavilySearch(apiKey: string, query: string): Promise<Searc
   const res = await fetch('https://api.tavily.com/search', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ api_key: apiKey, query, max_results: 5 })
+    body: JSON.stringify({ api_key: apiKey, query, max_results: 5 }),
+    signal: AbortSignal.timeout(20_000)
   })
   if (!res.ok) throw new Error(`Tavily 搜索失败 (${res.status})`)
   const data = (await res.json()) as { results?: SearchResult[] }
@@ -39,7 +40,11 @@ function extractText(html: string): string {
  * 长文用 LangChain 切分器压缩为前几块，避免撑爆上下文。
  */
 export async function fetchPageText(url: string, maxChars = 4000): Promise<string> {
-  const res = await net.fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 Briefy/0.2' } })
+  // 20s 超时：挂住的源不阻塞生成（调用方 catch 后跳过该源并如实标注）
+  const res = await net.fetch(url, {
+    headers: { 'User-Agent': 'Mozilla/5.0 Briefy/0.2' },
+    signal: AbortSignal.timeout(20_000)
+  })
   if (!res.ok) throw new Error(`网页抓取失败 ${res.status}`)
   const html = await res.text()
   const text = extractText(html)

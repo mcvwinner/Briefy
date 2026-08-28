@@ -192,24 +192,43 @@ function App(): React.JSX.Element {
     if (cancelRef.current) return // 已请求终止：跳过队列任务
     const generationId = crypto.randomUUID()
     inFlightRef.current.add(generationId)
+    /** 单槽看门狗：超时中止该任务并报错，worker 继续下一任务（防个别任务卡死拖住全局队列）。
+     *  超时后调用 cancelGeneration 释放主进程任务；若已正常完成则无效无害 */
+    const SLOT_TIMEOUT_MS = 180_000
+    const callGenerate = (): Promise<{ content: string }> => {
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const watchdog = new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`生成超时（超过 ${Math.round(SLOT_TIMEOUT_MS / 1000)}s 已中止）`)),
+          SLOT_TIMEOUT_MS
+        )
+      })
+      try {
+        return Promise.race([
+          window.briefy!.generateSlot(
+            generationId,
+            slot.prompt,
+            ROLE_DEFS[slot.role].name,
+            slot.kind,
+            slot.tools ?? ['getCurrentTime'],
+            docContext,
+            index,
+            slot.sources ?? [],
+            slot.estHeight
+          ),
+          watchdog
+        ])
+      } finally {
+        clearTimeout(timer)
+        void window.briefy?.cancelGeneration(generationId)
+      }
+    }
     layout.updateSlot(pageId, slot.id, { status: 'generating' })
     try {
       let content: string | undefined
       for (let attempt = 0; attempt < 2 && content === undefined; attempt++) {
         try {
-          content = (
-            await window.briefy!.generateSlot(
-              generationId,
-              slot.prompt,
-              ROLE_DEFS[slot.role].name,
-              slot.kind,
-              slot.tools ?? ['getCurrentTime'],
-              docContext,
-              index,
-              slot.sources ?? [],
-              slot.estHeight
-            )
-          ).content
+          content = (await callGenerate()).content
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err)
           // 用户主动终止：复位槽位，不重试不报错
