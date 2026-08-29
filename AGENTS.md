@@ -100,7 +100,7 @@
 - [x] 控件自适应缩放（v0.24.2：控件节点包 zoom: var(--briefy-fit)，图片/图表/引用框等占版体积随字号缩放系数联动；估算表只是退稿初筛，渲染层实测收敛为最终兜底；探针 probe-zoom.mjs）
 - [x] 估算降级为粗筛（v0.24.3：退稿仅限极端偏差（超 2 倍/不足 40%），普通偏差交渲染层字号自适应；报告卡改实测判定（SlotBox 回写字号比例/溢出，带去重防测量循环）；token 降 30%）
 - [x] 文件参考源（v0.25.0：InfoSource 加 kind:file + path，支持 txt/md/csv/json/log/pdf/docx（新增 pdf-parse/mammoth，npmmirror 安装，pdf-parse 需 @ts-ignore 引内部模块）；AI 经 readSource 工具按需分块读取（4000 字/块）每文件限 3 次，不预注入；pick-file IPC + 设置页/属性面板入口；实测 AI 精确引用文件事实）
-- [ ] 订阅功能（v0.26.0 已实现：订阅管理 Dialog（模板固化无 Key/推送新一期/重新出刊指定期/归档目录）+ 分层记忆（最近 3 期+滚动总览）+ 连载线直通（prompt 含继续/连载注入上期全文）+ 强化审查 2 轮 + PDF 归档；生成/选题/审稿 IPC 支持 overrides 内存态覆盖；settingsRef/docRef 消除出刊闭包陷阱；单测 test:subscription；待用户实测出刊闭环）
+- [x] 订阅功能（v0.26.0 已实现并实测通过：订阅管理 Dialog（模板固化无 Key/推送新一期/重新出刊指定期/归档目录）+ 分层记忆（最近 3 期+滚动总览）+ 连载线直通（prompt 含继续/连载注入上期全文）+ 强化审查 2 轮 + PDF 归档；生成/选题/审稿 IPC 支持 overrides 内存态覆盖；settingsRef/docRef 消除出刊闭包陷阱；单测 test:subscription）
 
 ## 7. P6 增强能力包计划（v0.12 起，已与用户对齐）
 
