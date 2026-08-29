@@ -56,7 +56,7 @@ import { ROLE_DEFS, resolveRoleName } from '../../shared/layout'
 import { PRESETS, buildDocFromPreset } from '../../shared/presets'
 import { toPresetSlots, fromPresetSlots, type UserPreset } from '../../shared/user-preset'
 // enforceLength（v0.20 引入的截断重组）在 v0.21 起不再被调用，函数与测试保留在 shared/parse.ts 备用
-import { countContentChars } from '../../shared/parse'
+import { countContentChars, estimateQuota } from '../../shared/parse'
 declare global {
   interface Window {
     briefy?: {
@@ -426,12 +426,12 @@ function App(): React.JSX.Element {
       // ---- 长度协调（v0.22：槽位定字数；偏差小微调，偏差大退稿）----
       // 可接受区间 80%~115%（用户约定）：区间内交给渲染层字号微调（少→增大字号，多→缩小字号/放宽槽位）；
       // 区间外打回重写一次（带方向性字数引导），重写后仍偏差大则不再截断，由渲染层调槽位/字号兜底。
-      // 字数统计用 countContentChars：完整剥离 ::: 控件块（含图表数据行等），反映真实文字体积
+      // 体积统计用 estimateQuota：正文文字 + 控件按占版面积折算等效字数（高度mm×4.5），反映槽位真实体积
       const wordLimit = Math.max(40, Math.round(slot.estHeight * 4.5))
-      const len = content ? countContentChars(content) : 0
-      const ratio = content ? len / wordLimit : 1
-      // 纯控件槽位（如 notice 的 :::info、stats 的 :::stat）：字数为 0 是合法形态，体积由渲染层实测适配，不退稿
-      const pureWidget = len === 0 && (content?.includes(':::') ?? false)
+      const quota = content ? estimateQuota(content) : 0
+      const ratio = content ? quota / wordLimit : 1
+      // 纯控件槽位（正文为 0，如 notice 只写 :::info、stats 只写 :::stat）是合法形态，不退稿
+      const pureWidget = (content?.includes(':::') ?? false) && countContentChars(content ?? '') === 0
       let retried = false
       if (content && !pureWidget && (ratio > 1.15 || ratio < 0.8)) {
         retried = true // 只要发起过退稿重写就记录（质量报告展示「重试了」）
@@ -445,8 +445,8 @@ function App(): React.JSX.Element {
               window.briefy!.generateSlot(
                 retryId,
                 tooLong
-                  ? `${slot.prompt}\n\n【退稿重写】你上一稿写了 ${len} 字，超出目标 ${wordLimit} 字较多被主编退稿。这次控制在 ${wordLimit} 字左右（上下浮动不超过 15%）：保留最重要的信息，删除次要细节与重复修饰。`
-                  : `${slot.prompt}\n\n【退稿重写】你上一稿只写了 ${len} 字，距目标 ${wordLimit} 字差距较大被主编退稿。这次写到 ${wordLimit} 字左右（上下浮动不超过 15%）：补充具体细节、数据与背景，展开论述，不要空洞凑字。`,
+                  ? `${slot.prompt}\n\n【退稿重写】你上一稿写了 ${quota} 字（含图表/配图折算），超出目标 ${wordLimit} 字较多被主编退稿。这次控制在 ${wordLimit} 字左右（上下浮动不超过 15%）：保留最重要的信息，删除次要细节与重复修饰。`
+                  : `${slot.prompt}\n\n【退稿重写】你上一稿只写了 ${quota} 字（含图表/配图折算），距目标 ${wordLimit} 字差距较大被主编退稿。这次写到 ${wordLimit} 字左右（上下浮动不超过 15%）：补充具体细节、数据与背景，展开论述，不要空洞凑字。`,
                 resolveRoleName(slot),
                 slot.kind,
                 slot.tools ?? ['getCurrentTime'],
@@ -486,19 +486,14 @@ function App(): React.JSX.Element {
       const usage = (window as unknown as { __briefyUsage?: { promptTokens: number; completionTokens: number; totalTokens: number } }).__briefyUsage
       setQualityReport({
         rows: slots.map((s) => {
-          const len = countContentChars(s.content ?? '')
+          const len = estimateQuota(s.content ?? '')
           const limit = Math.max(40, Math.round(s.estHeight * 4.5))
           return {
             role: resolveRoleName(s, settings?.customRoles),
             status: s.status,
             len,
             limit,
-            ok:
-              s.status !== 'done'
-                ? null
-                : len === 0 && (s.content ?? '').includes(':::')
-                  ? true // 纯控件槽位（如 notice 的 :::info）：合法形态，不算偏差
-                  : len >= limit * 0.8 && len <= limit * 1.15,
+            ok: s.status !== 'done' ? null : len >= limit * 0.8 && len <= limit * 1.15,
             hasSource: (s.sources?.length ?? 0) > 0,
             rewrites: s.rewriteCount ?? 0
           }
@@ -1120,7 +1115,7 @@ function App(): React.JSX.Element {
                     <tr style={{ textAlign: 'left', borderBottom: `1px solid ${tokens.colorNeutralStroke2}` }}>
                       <th style={{ padding: '4px 6px' }}>槽位</th>
                       <th style={{ padding: '4px 6px' }}>状态</th>
-                      <th style={{ padding: '4px 6px' }}>字数/上限</th>
+                      <th style={{ padding: '4px 6px' }}>体积/上限</th>
                       <th style={{ padding: '4px 6px' }}>重写</th>
                       <th style={{ padding: '4px 6px' }}>来源</th>
                     </tr>
@@ -1135,7 +1130,7 @@ function App(): React.JSX.Element {
                         <td style={{ padding: '4px 6px' }}>
                           {r.status === 'done' ? (
                             <span style={{ color: r.ok ? tokens.colorPaletteGreenForeground1 : tokens.colorPaletteRedForeground1 }}>
-                              {r.len === 0 && r.ok ? '控件' : `${r.len}/${r.limit}`} {r.ok ? '✓' : '偏差大'}
+                              {r.len}/{r.limit} {r.ok ? '✓' : '偏差大'}
                             </span>
                           ) : (
                             '—'

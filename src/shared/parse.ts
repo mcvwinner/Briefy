@@ -1,6 +1,66 @@
 import type { WidgetId, WidgetParams } from './widgets'
 import { WIDGET_REGISTRY } from './widgets'
 
+/** 图形型控件等效高度（mm）：按占版面积估高，与槽位容量（estHeight×4.5 字/mm）同一口径折算成等效字数 */
+const WIDGET_HEIGHT_MM: Partial<Record<WidgetId, (params: WidgetParams) => number>> = {
+  stat: () => 15, // 统计卡（数值+标签+注释）
+  timeline: (p) => 8 * splitCount(p.items), // 每事件一行
+  image: () => 32, // 图 + 图注
+  qrcode: () => 26, // 码 + 说明
+  toc: (p) => 10 * splitCount(p.items), // 每条目标题+提要
+  chart: (p) => 40 + 3 * splitCount(p.data) // 标题+绘图区+图例，数据点多再加高
+}
+
+/** 数一数分号分隔的条目数（timeline/toc/chart 的 items/data） */
+function splitCount(value?: string): number {
+  if (!value) return 0
+  return value.split(';').filter((s) => s.trim()).length
+}
+
+/**
+ * 统计内容的等效字数（体积协调口径）：正文文字照计；图形型控件按占版面积折算（高度mm×4.5字/mm），
+ * 文字型控件（quote/info）参数文字照计并加底高——让字数重新反映槽位体积，控件不再"隐形"。
+ * 多行块（AI 非标准写法 :::id 无参数）按 40mm 底座 + 块内文字容错估算。
+ */
+export function estimateQuota(content: string): number {
+  const CHAR_PER_MM = 4.5
+  let total = 0
+  let blockLines: string[] | null = null
+  const closeBlock = (): void => {
+    if (blockLines) {
+      total += Math.round(40 * CHAR_PER_MM) + blockLines.join('').replace(/\s+/g, '').length
+      blockLines = null
+    }
+  }
+  for (const raw of content.split('\n')) {
+    const line = raw.trim()
+    if (line.startsWith(':::')) {
+      closeBlock()
+      const w = parseWidgetLine(line)
+      if (w) {
+        const est = WIDGET_HEIGHT_MM[w.id]
+        if (est) {
+          total += Math.round(est(w.params) * CHAR_PER_MM)
+        } else {
+          // 文字型控件（quote/info）：底高 + 参数文字
+          const base = w.id === 'quote' ? 12 : 10
+          total += Math.round(base * CHAR_PER_MM) + Object.values(w.params).join('').replace(/\s+/g, '').length
+        }
+        continue
+      }
+      if (/^:::\w/.test(line)) blockLines = [] // 非标准多行块：开块容错
+      continue
+    }
+    if (blockLines) {
+      blockLines.push(raw)
+      continue
+    }
+    total += raw.replace(/\s+/g, '').length
+  }
+  closeBlock()
+  return total
+}
+
 /**
  * 统计内容的有效文字数：完整剥离 ::: 控件块（含块内数据行，如图表数据、时间线条目），
  * 只计正文文字——字数协调/质量报告反映的是文字体积，控件自身体积由渲染层实测适配。

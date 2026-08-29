@@ -78,4 +78,28 @@ assert(tl[0].type === 'widget' && tl[0].params.items.includes('15:00|收盘'), '
   assert(countContentChars('') === 0, '空内容为零')
 }
 
+// ---- estimateQuota：控件按占版面积折算等效字数（体积协调口径） ----
+{
+  const { estimateQuota } = await import('../src/shared/parse.ts')
+  const text = '正文三十个字左右的一段话用于验证体积折算的口径是否正确有效。' // 30 字
+  // 图形型控件：stat 15mm×4.5 = 68 等效字
+  const s1 = estimateQuota(`${text}\n:::stat{value:"+1.2%" label:"沪指涨幅"}`)
+  assert(s1 === 30 + 68, `stat 折算 68 等效字（期望 ${30 + 68}，实际 ${s1}）`)
+  // timeline：2 事件 16mm×4.5 = 72
+  const s2 = estimateQuota(':::timeline{items:"09:30|高开; 10:15|拉升"}')
+  assert(s2 === 72, `timeline 2 事件折算 72（期望 72，实际 ${s2}）`)
+  // chart：3 数据点 49mm×4.5 = 221（40 + 3×3 = 49mm）
+  const s3 = estimateQuota(':::chart{type:"bar" title:"图" data:"a|1; b|2; c|3"}')
+  assert(s3 === 221, `chart 3 数据点折算 221（期望 221，实际 ${s3}）`)
+  // 文字型控件 info：底高 10mm×4.5=45 + 参数文字（tone "warn" 4 字 + text 6 字）
+  const s4 = estimateQuota(':::info{tone:"warn" text:"数据截至发稿"}')
+  assert(s4 === 45 + 10, `info 底高+参数文字（期望 ${45 + 10}，实际 ${s4}）`)
+  // 多个控件叠加
+  const s5 = estimateQuota(`${text}\n:::image{query:"meeting" caption:"现场"}\n:::stat{value:"5%" label:"涨幅"}`)
+  assert(s5 === 30 + 144 + 68, `多控件叠加（期望 ${30 + 144 + 68}，实际 ${s5}）`)
+  // 纯文字与空内容（兼容旧口径）
+  assert(estimateQuota(text) === 30, '纯文字计数不变')
+  assert(estimateQuota('') === 0, '空内容为零')
+}
+
 console.log('✅ 控件协议解析全部断言通过')

@@ -116,22 +116,54 @@ if (Date.now() >= deadline) fail('总超时：生成未在时限内完成')
 
 // ---- 4. 统计结果 + 质量报告（ROADMAP Q5 最小层） ----
 const result = await cdp.evalJs(`(() => {
-  // 字数统计与 src/shared/parse.ts 的 countContentChars 同口径（页面上下文内联实现）
-  const countContentChars = (content) => {
-    let inBlock = false
-    let count = 0
+  // 体积统计与 src/shared/parse.ts 的 estimateQuota 同口径（页面上下文内联实现）：
+  // 正文文字 + 控件按占版面积折算等效字数（高度mm×4.5），让字数重新反映槽位体积
+  const WIDGET_HEIGHT_MM = {
+    stat: () => 15,
+    timeline: (p) => 8 * splitCount(p.items),
+    image: () => 32,
+    qrcode: () => 26,
+    toc: (p) => 10 * splitCount(p.items),
+    chart: (p) => 40 + 3 * splitCount(p.data)
+  }
+  const splitCount = (v) => (v ? v.split(';').filter((s) => s.trim()).length : 0)
+  const estimateQuota = (content) => {
+    const CHAR_PER_MM = 4.5
+    let total = 0
+    let blockLines = null
+    const closeBlock = () => {
+      if (blockLines) {
+        total += Math.round(40 * CHAR_PER_MM) + blockLines.join('').replace(/\\s+/g, '').length
+        blockLines = null
+      }
+    }
     for (const raw of content.split('\\n')) {
       const line = raw.trim()
       if (line.startsWith(':::')) {
-        const singleLine = /^:::\\w+\\s*\\{/.test(line)
-        if (inBlock) inBlock = singleLine ? false : line !== ':::'
-        else inBlock = !singleLine
+        closeBlock()
+        const m = line.match(/^:::(\\w+)\\{(.*)\\}\\s*$/)
+        if (m) {
+          const params = {}
+          const pair = /(\\w+)\\s*:\\s*"([^"]*)"/g
+          let mm
+          while ((mm = pair.exec(m[2])) !== null) params[mm[1]] = mm[2]
+          const est = WIDGET_HEIGHT_MM[m[1]]
+          if (est) {
+            total += Math.round(est(params) * CHAR_PER_MM)
+          } else {
+            const base = m[1] === 'quote' ? 12 : 10
+            total += Math.round(base * CHAR_PER_MM) + Object.values(params).join('').replace(/\\s+/g, '').length
+          }
+          continue
+        }
+        if (/^:::\\w/.test(line)) blockLines = []
         continue
       }
-      if (inBlock) continue
-      count += raw.replace(/\\s+/g, '').length
+      if (blockLines) { blockLines.push(raw); continue }
+      total += raw.replace(/\\s+/g, '').length
     }
-    return count
+    closeBlock()
+    return total
   }
   const doc = window.__briefyGetDoc()
   const slots = doc.pages.flatMap(p => p.slots)
@@ -141,8 +173,8 @@ const result = await cdp.evalJs(`(() => {
     error: slots.filter(s => s.status === 'error').map(s => ({ role: s.role, msg: (s.content ?? '').slice(0, 200) })),
     quality: slots.filter(s => s.status === 'done').map(s => ({
       role: s.role,
-      // 字数统计与渲染层 countContentChars 同口径：完整剥离 ::: 控件块（含图表数据行），只计正文文字
-      len: countContentChars(s.content ?? ''),
+      // 体积统计与渲染层 estimateQuota 同口径：正文 + 控件面积折算
+      len: estimateQuota(s.content ?? ''),
       limit: Math.round(s.estHeight * 4.5),
       hasSource: (s.sources?.length ?? 0) > 0,
       content: s.content ?? ''
