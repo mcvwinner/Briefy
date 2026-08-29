@@ -54,8 +54,7 @@ import type { LayoutDoc, Slot, SlotRole } from '../../shared/layout'
 import { ROLE_DEFS, resolveRoleName } from '../../shared/layout'
 import { PRESETS, buildDocFromPreset } from '../../shared/presets'
 import { toPresetSlots, fromPresetSlots, type UserPreset } from '../../shared/user-preset'
-import { enforceLength } from '../../shared/parse'
-
+// enforceLength（v0.20 引入的截断重组）在 v0.21 起不再被调用，函数与测试保留在 shared/parse.ts 备用
 declare global {
   interface Window {
     briefy?: {
@@ -454,11 +453,9 @@ function App(): React.JSX.Element {
             inFlightRef.current.delete(retryId)
           }
         } catch {
-          // 重写失败：保留原稿，走下方截断兜底
+          // 重写失败：保留原稿
         }
-        if (content && cleanLen(content) > wordLimit * 1.25) {
-          content = enforceLength(content, wordLimit).text
-        }
+        // 重写后仍超限：不再截断，交给渲染层自适应缩字号适配（v0.21.0：超长不砍内容，缩小字号装进槽位；极长则溢出跨页自然流）
       }
       layout.updateSlot(slot.id, { content: content ?? '（生成失败：空响应）', status: 'done' })
     } finally {

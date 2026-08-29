@@ -1,5 +1,5 @@
 import type * as React from 'react'
-import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { makeStyles, tokens } from '@fluentui/react-components'
 import type { Page, Slot } from '../../../shared/layout'
 import { resolveRoleName } from '../../../shared/layout'
@@ -217,19 +217,31 @@ function SlotBox({
   const styles = useStyles()
   const [hovered, setHovered] = useState(false)
   const ref = useRef<HTMLDivElement | null>(null)
-  // 每次渲染后测量（无依赖数组）：内容/宽度变化都重测；不超限时不触发 setState，自然收敛
+  /** 自适应缩字号（超长内容用字号适配槽位体积，不砍内容）：
+   *  超限时逐步缩小（下限 70%），到下限仍超才溢出跨页；内容变化时重置。
+   *  缩放系数经 CSS 变量 --briefy-fit 传递，内容 div 用 calc(字号 * var(--briefy-fit)) 引用 */
+  const [fitScale, setFitScale] = useState(1)
+  useEffect(() => setFitScale(1), [slot.content])
+  // 每次渲染后测量（无依赖数组）：内容/字号变化都重测；不超限时不触发 setState，自然收敛
   useLayoutEffect(() => {
     const el = ref.current
-    if (!el || !onOverflow) return
+    if (!el) return
     const actualMm = pxToMm(el.offsetHeight)
     const limit = slot.estHeight + (slot.overflow ?? 0)
-    if (actualMm > limit + 1) onOverflow(slot.id, Math.ceil(actualMm - limit))
+    if (actualMm > limit + 1) {
+      if (fitScale > 0.71) {
+        setFitScale((s) => Math.max(0.7, s * 0.88))
+      } else if (onOverflow) {
+        onOverflow(slot.id, Math.ceil(actualMm - limit))
+      }
+    }
   })
   return (
     <div
       ref={ref}
       className={`${styles.slot} ${selected ? styles.slotSelected : ''} ${hovered ? styles.slotHover : ''}`}
       data-slot-id={slot.id}
+      style={{ ['--briefy-fit' as string]: fitScale } as React.CSSProperties}
       onPointerDown={onPointerDown}
       onPointerEnter={() => setHovered(true)}
       onPointerLeave={() => setHovered(false)}
@@ -287,12 +299,6 @@ function PageView({ page, selectedSlotId, onSelectSlot, onOverflow, prefs, custo
   const filter = prefs?.grayscale ? 'grayscale(1)' : undefined
   // 多栏正文流（ROADMAP Q3）：正文槽位文字分栏（1–3 栏，默认 1 = 单栏）
   const columns = prefs?.columns !== undefined ? Math.min(3, Math.max(1, Math.round(prefs.columns))) : 1
-  const bodyStyle = {
-    fontFamily: font,
-    fontSize,
-    lineHeight,
-    ...(columns > 1 ? { columnCount: columns, columnGap: '6mm', columnRule: '1px solid #ddd' } : {})
-  }
 
   const renderSlot = (slot: Slot): React.JSX.Element => (
     <SlotBox
@@ -304,7 +310,18 @@ function PageView({ page, selectedSlotId, onSelectSlot, onOverflow, prefs, custo
       onOverflow={onOverflow}
     >
       {slot.status === 'done' && slot.content ? (
-        <div className={styles.slotContent} style={slot.role === 'body' && slot.kind === 'text' ? bodyStyle : { fontFamily: font, fontSize, lineHeight }}>
+        <div
+          className={styles.slotContent}
+          style={{
+            fontFamily: font,
+            lineHeight,
+            // 自适应缩字号：字号乘以 SlotBox 提供的 --briefy-fit 系数（装不下就缩小，不砍内容）
+            fontSize: `calc(${fontSize ?? '10pt'} * var(--briefy-fit, 1))`,
+            ...(slot.role === 'body' && slot.kind === 'text' && columns > 1
+              ? { columnCount: columns, columnGap: '6mm', columnRule: '1px solid #ddd' }
+              : {})
+          }}
+        >
           <SlotContent kind={slot.kind} content={slot.content} role={slot.role} />
           {/* 来源署名（ROADMAP Q1）：挂在槽位上的源即视为本期事实依据 */}
           {(slot.sources?.length ?? 0) > 0 && (
