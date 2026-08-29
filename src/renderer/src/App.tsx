@@ -328,7 +328,7 @@ function App(): React.JSX.Element {
   const [phase, setPhase] = useState<'选题中…' | '写作中…' | '审稿中…' | null>(null)
   /** 质量报告卡（ROADMAP 反馈：让改进可见） */
   const [qualityReport, setQualityReport] = useState<{
-    rows: { role: string; status: string; len: number; limit: number; ok: boolean | null; hasSource: boolean; rewrites: number }[]
+    rows: { role: string; status: string; len: number; limit: number; ok: boolean | null; hasSource: boolean; rewrites: number; fit?: number }[]
     usage?: { promptTokens: number; completionTokens: number; totalTokens: number }
     reviewFixed: number
   } | null>(null)
@@ -426,14 +426,16 @@ function App(): React.JSX.Element {
       // ---- 长度协调（v0.22：槽位定字数；偏差小微调，偏差大退稿）----
       // 可接受区间 80%~115%（用户约定）：区间内交给渲染层字号微调（少→增大字号，多→缩小字号/放宽槽位）；
       // 区间外打回重写一次（带方向性字数引导），重写后仍偏差大则不再截断，由渲染层调槽位/字号兜底。
-      // 体积统计用 estimateQuota：正文文字 + 控件按占版面积折算等效字数（高度mm×4.5），反映槽位真实体积
+      // 体积统计用 estimateQuota：正文文字 + 控件按占版面积折算等效字数（高度mm×4.5），反映槽位真实体积。
+      // 估算密度对不同排版（头条大字/数据小卡）天然不准，只做粗筛：仅极端偏差（超 2 倍/不足 40%）才退稿；
+      // 普通偏差交给渲染层字号/槽位自适应（缩放下限 70%/上限 125%，可覆盖约 1.8 倍体积差），实测收敛兜底
       const wordLimit = Math.max(40, Math.round(slot.estHeight * 4.5))
       const quota = content ? estimateQuota(content) : 0
       const ratio = content ? quota / wordLimit : 1
       // 纯控件槽位（正文为 0，如 notice 只写 :::info、stats 只写 :::stat）是合法形态，不退稿
       const pureWidget = (content?.includes(':::') ?? false) && countContentChars(content ?? '') === 0
       let retried = false
-      if (content && !pureWidget && (ratio > 1.15 || ratio < 0.8)) {
+      if (content && !pureWidget && (ratio > 2 || ratio < 0.4)) {
         retried = true // 只要发起过退稿重写就记录（质量报告展示「重试了」）
         const tooLong = ratio > 1.15
         try {
@@ -445,8 +447,8 @@ function App(): React.JSX.Element {
               window.briefy!.generateSlot(
                 retryId,
                 tooLong
-                  ? `${slot.prompt}\n\n【退稿重写】你上一稿写了 ${quota} 字（含图表/配图折算），超出目标 ${wordLimit} 字较多被主编退稿。这次控制在 ${wordLimit} 字左右（上下浮动不超过 15%）：保留最重要的信息，删除次要细节与重复修饰。`
-                  : `${slot.prompt}\n\n【退稿重写】你上一稿只写了 ${quota} 字（含图表/配图折算），距目标 ${wordLimit} 字差距较大被主编退稿。这次写到 ${wordLimit} 字左右（上下浮动不超过 15%）：补充具体细节、数据与背景，展开论述，不要空洞凑字。`,
+                  ? `${slot.prompt}\n\n【退稿重写】你上一稿体积约 ${quota} 字（含图表/配图折算），超出目标 ${wordLimit} 字太多被主编退稿。这次压缩到 ${wordLimit} 字左右：保留最重要的信息，删除次要细节与重复修饰。`
+                  : `${slot.prompt}\n\n【退稿重写】你上一稿体积约 ${quota} 字（含图表/配图折算），距目标 ${wordLimit} 字差距太大被主编退稿。这次写到 ${wordLimit} 字左右：补充具体细节、数据与背景，展开论述，不要空洞凑字。`,
                 resolveRoleName(slot),
                 slot.kind,
                 slot.tools ?? ['getCurrentTime'],
@@ -478,6 +480,16 @@ function App(): React.JSX.Element {
   }
 
   /** 生成单个槽位（属性面板"生成此槽位"） */
+  /** 实测适配状态（SlotBox 收敛后回写）：字号比例与是否溢出——质量报告以实测为准，估算只是参考 */
+  const [slotFits, setSlotFits] = useState<Record<string, { fit: number; overflow: boolean }>>({})
+  const handleFit = useCallback((slotId: string, fit: number, overflow: boolean): void => {
+    setSlotFits((prev) => {
+      const cur = prev[slotId]
+      if (cur && cur.fit === fit && cur.overflow === overflow) return prev // 无变化不触发重渲染，防测量循环
+      return { ...prev, [slotId]: { fit, overflow } }
+    })
+  }, [])
+
   /** 收集并显示质量报告卡：生成完成时自动弹出；卡内「刷新」手动重取最新状态（含仍在生成的槽位） */
   const collectReport = (reviewFixedCount: number): void => {
     try {
@@ -488,12 +500,21 @@ function App(): React.JSX.Element {
         rows: slots.map((s) => {
           const len = estimateQuota(s.content ?? '')
           const limit = Math.max(40, Math.round(s.estHeight * 4.5))
+          // 实测适配优先（SlotBox 收敛结果）：溢出才算失败；无实测（未渲染/刷新前）时用估算兑底
+          const fit = slotFits[s.id]
+          const ok =
+            s.status !== 'done'
+              ? null
+              : fit
+                ? !fit.overflow
+                : len >= limit * 0.8 && len <= limit * 1.15
           return {
             role: resolveRoleName(s, settings?.customRoles),
             status: s.status,
             len,
             limit,
-            ok: s.status !== 'done' ? null : len >= limit * 0.8 && len <= limit * 1.15,
+            fit: fit?.fit,
+            ok,
             hasSource: (s.sources?.length ?? 0) > 0,
             rewrites: s.rewriteCount ?? 0
           }
@@ -1022,6 +1043,7 @@ function App(): React.JSX.Element {
                   manual={layout.doc.layoutMode === 'manual'}
                   onMoveSlot={layout.moveSlot}
                   onResizeSlot={layout.resizeSlot}
+                  onFit={handleFit}
                   prefs={settings?.layout}
                   customRoles={settings?.customRoles}
                   docTitle={layout.doc.title}
@@ -1131,6 +1153,7 @@ function App(): React.JSX.Element {
                           {r.status === 'done' ? (
                             <span style={{ color: r.ok ? tokens.colorPaletteGreenForeground1 : tokens.colorPaletteRedForeground1 }}>
                               {r.len}/{r.limit} {r.ok ? '✓' : '偏差大'}
+                              {r.fit !== undefined && Math.abs(r.fit - 1) > 0.03 ? ` · 字号 ${Math.round(r.fit * 100)}%` : ''}
                             </span>
                           ) : (
                             '—'
@@ -1149,7 +1172,7 @@ function App(): React.JSX.Element {
                       Token 用量：输入 {qualityReport.usage.promptTokens} + 输出 {qualityReport.usage.completionTokens} = {qualityReport.usage.totalTokens}
                     </span>
                   ) : null}
-                  <span>生成前的版本已存为快照（文件 → 还原上次生成前快照）。</span>
+                  <span>生成前的版本已存为快照（文件 → 还原上次生成前快照）。适配状态以渲染实测为准（偏差时自动调字号），点「刷新」获取最新。</span>
                 </div>
               </DialogContent>
               <DialogActions>

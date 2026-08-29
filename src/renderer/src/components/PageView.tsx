@@ -219,6 +219,7 @@ function SlotBox({
   onResizeStart,
   onPointerDown,
   onOverflow,
+  onFit,
   children
 }: {
   slot: Slot
@@ -230,6 +231,8 @@ function SlotBox({
   onResizeStart?: (e: React.PointerEvent) => void
   onPointerDown: (e: React.PointerEvent) => void
   onOverflow?: (slotId: string, deltaMm: number) => void
+  /** 实测适配状态回写（收敛后的字号比例与是否溢出；质量报告以实测为准） */
+  onFit?: (slotId: string, fitScale: number, overflow: boolean) => void
   children: ReactNode
 }): React.JSX.Element {
   const styles = useStyles()
@@ -253,6 +256,7 @@ function SlotBox({
     if (!el) return
     const actualMm = pxToMm(el.scrollHeight)
     const limit = slot.estHeight + (slot.overflow ?? 0)
+    let overflowing = false
     if (actualMm > limit + 1) {
       if (growingRef.current) {
         // 增字号尝试过头：回退一步（上一个安全值）并锁定，不再增长
@@ -263,6 +267,7 @@ function SlotBox({
         setFitScale((s) => Math.max(0.7, s * 0.9))
       } else if (onOverflow) {
         onOverflow(slot.id, Math.ceil(actualMm - limit))
+        overflowing = true
       }
     } else if (actualMm < limit - 3 && fitScale < 1.24 && !lockedRef.current) {
       // 留白超过 3mm 才增字号（避免小留白抖动），步进 1.1，上限 125%
@@ -271,6 +276,8 @@ function SlotBox({
     } else {
       growingRef.current = false
     }
+    // 实测结果回写（App 端去重，同值不触发重渲染）；生成中不上报（内容未完，无适配意义）
+    if (slot.status === 'done') onFit?.(slot.id, fitScale, overflowing)
   })
   return (
     <div
@@ -304,6 +311,8 @@ interface PageViewProps {
   onMoveSlot?: (slotId: string, x: number, y: number, cross?: 'prev' | 'next') => void
   /** 手动模式：拖角结束提交尺寸 */
   onResizeSlot?: (slotId: string, width: number, estHeight: number) => void
+  /** 实测适配状态回写（字号比例/溢出；质量报告以实测为准）；打印视图不传 */
+  onFit?: (slotId: string, fitScale: number, overflow: boolean) => void
   /** 版式偏好（页边距/栏距/字体/字号/行距/黑白优先/页眉页脚）；缺省 = 内置默认 */
   prefs?: LayoutPrefs
   /** 自定义角色库（徽章显示自定义角色名） */
@@ -332,7 +341,7 @@ function groupColumns(slots: Slot[]): { full: Slot[]; left: Slot[]; right: Slot[
 }
 
 /** A4 页面：全宽槽位纵向流 + 左右半栏真实并排；手动布局模式下槽位绝对定位可拖拽 */
-function PageView({ page, selectedSlotId, onSelectSlot, onOverflow, manual, onMoveSlot, onResizeSlot, prefs, customRoles, docTitle, pageNo, totalPages }: PageViewProps): React.JSX.Element {
+function PageView({ page, selectedSlotId, onSelectSlot, onOverflow, onFit, manual, onMoveSlot, onResizeSlot, prefs, customRoles, docTitle, pageNo, totalPages }: PageViewProps): React.JSX.Element {
   const styles = useStyles()
   const { full, left, right } = groupColumns(page.slots)
   const sheetRef = useRef<HTMLDivElement | null>(null)
@@ -410,6 +419,7 @@ function PageView({ page, selectedSlotId, onSelectSlot, onOverflow, manual, onMo
       onResizeStart={manual && selectedSlotId === slot.id ? (e) => startDrag(e, slot, 'resize') : undefined}
       onPointerDown={() => onSelectSlot(slot.id)}
       onOverflow={onOverflow}
+      onFit={onFit}
     >
       {slot.status === 'done' && slot.content ? (
         <div
