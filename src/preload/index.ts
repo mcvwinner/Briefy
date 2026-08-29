@@ -3,6 +3,7 @@ import type { IpcRendererEvent } from 'electron'
 import type { AiSettings, InfoSource } from '../shared/settings'
 import type { LayoutDoc } from '../shared/layout'
 import type { UserPreset } from '../shared/user-preset'
+import type { Subscription } from '../shared/subscription'
 
 const api = {
   getSettings: (): Promise<AiSettings> => ipcRenderer.invoke('settings:get'),
@@ -16,7 +17,8 @@ const api = {
     docContext: unknown,
     slotIndex: number,
     sources: InfoSource[],
-    estHeight: number
+    estHeight: number,
+    overrides?: Partial<AiSettings>
   ): Promise<{ content: string; usage?: { promptTokens: number; completionTokens: number; totalTokens: number } }> =>
     ipcRenderer.invoke(
       'ai:generate-slot',
@@ -28,7 +30,8 @@ const api = {
       docContext,
       slotIndex,
       sources,
-      estHeight
+      estHeight,
+      overrides
     ),
   cancelGeneration: (generationId: string): Promise<boolean> =>
     ipcRenderer.invoke('ai:cancel-generation', generationId),
@@ -36,14 +39,16 @@ const api = {
   planIssue: (
     generationId: string,
     outline: { index: number; role: string; prompt: string }[],
-    sources: InfoSource[]
+    sources: InfoSource[],
+    overrides?: Partial<AiSettings>
   ): Promise<{ assignments: { index: number; angle: string; quota?: number; avoid?: string }[] }> =>
-    ipcRenderer.invoke('ai:plan-issue', generationId, outline, sources),
+    ipcRenderer.invoke('ai:plan-issue', generationId, outline, sources, overrides),
   reviewIssue: (
     generationId: string,
-    articles: { index: number; role: string; content: string }[]
+    articles: { index: number; role: string; content: string }[],
+    overrides?: Partial<AiSettings>
   ): Promise<{ comments: { index: number; problem: string; instruction: string }[] }> =>
-    ipcRenderer.invoke('ai:review-issue', generationId, articles),
+    ipcRenderer.invoke('ai:review-issue', generationId, articles, overrides),
   /** 生成过程心跳（AI 流式输出增量，ROADMAP Q2 反馈）；返回去注册函数 */
   onHeartbeat: (cb: (generationId: string, delta: string) => void): (() => void) => {
     const listener = (_event: IpcRendererEvent, id: string, delta: string): void => cb(id, delta)
@@ -71,7 +76,13 @@ const api = {
   importUserPreset: (): Promise<UserPreset | null> => ipcRenderer.invoke('user-preset:import'),
   /** 选择本地文件作为参考源（返回 null = 用户取消） */
   pickSourceFile: (): Promise<{ path: string; name: string } | null> =>
-    ipcRenderer.invoke('sources:pick-file')
+    ipcRenderer.invoke('sources:pick-file'),
+  /** 订阅（v0.26）：CRUD / 归档路径 / 打开目录 */
+  listSubscriptions: (): Promise<Subscription[]> => ipcRenderer.invoke('subscriptions:list'),
+  saveSubscription: (sub: Subscription): Promise<boolean> => ipcRenderer.invoke('subscriptions:save', sub),
+  deleteSubscription: (id: string): Promise<boolean> => ipcRenderer.invoke('subscriptions:delete', id),
+  issuePath: (id: string, stamp?: string): Promise<string> => ipcRenderer.invoke('subscriptions:issue-path', id, stamp),
+  openSubscriptionFolder: (id: string): Promise<string> => ipcRenderer.invoke('subscriptions:open-folder', id)
 }
 
 export type BriefyApi = typeof api

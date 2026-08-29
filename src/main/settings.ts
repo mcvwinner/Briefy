@@ -70,6 +70,11 @@ async function writeSettings(settings: AiSettings): Promise<void> {
 /** 进行中的生成任务（供用户终止） */
 const activeGenerations = new Map<string, AbortController>()
 
+/** 订阅出刊用：在本次生成范围内叠加模板覆盖（model/baseUrl/stylePrompt/roleDuties 等），不写 settings.json */
+function readSettingsWith(base: AiSettings, overrides?: Partial<AiSettings>): AiSettings {
+  return overrides ? { ...base, ...overrides } : base
+}
+
 export function registerSettingsIpc(): void {
   ipcMain.handle('settings:get', () => readSettings())
   ipcMain.handle('settings:set', (_event, settings: AiSettings) => writeSettings(settings))
@@ -87,7 +92,8 @@ export function registerSettingsIpc(): void {
       docContext: DocContext,
       slotIndex: number,
       sources: InfoSource[],
-      estHeight: number
+      estHeight: number,
+      overrides?: Partial<AiSettings>
     ) => {
       const settings = await readSettings()
       const controller = new AbortController()
@@ -121,7 +127,7 @@ export function registerSettingsIpc(): void {
           }
         }
         const generated = await generateSlotContent(
-          settings,
+          readSettingsWith(settings, overrides),
           prompt,
           role,
           kind,
@@ -194,9 +200,10 @@ export function registerSettingsIpc(): void {
       _event,
       generationId: string,
       outline: { index: number; role: string; prompt: string }[],
-      sources: InfoSource[]
+      sources: InfoSource[],
+      overrides?: Partial<AiSettings>
     ) => {
-      const settings = await readSettings()
+      const settings = readSettingsWith(await readSettings(), overrides)
       const controller = new AbortController()
       activeGenerations.set(generationId, controller)
       try {
@@ -216,9 +223,10 @@ export function registerSettingsIpc(): void {
     async (
       _event,
       generationId: string,
-      articles: { index: number; role: string; content: string }[]
+      articles: { index: number; role: string; content: string }[],
+      overrides?: Partial<AiSettings>
     ) => {
-      const settings = await readSettings()
+      const settings = readSettingsWith(await readSettings(), overrides)
       const controller = new AbortController()
       activeGenerations.set(generationId, controller)
       try {

@@ -6,7 +6,7 @@
 import { readFileSync } from 'node:fs'
 
 const preload = readFileSync('out/preload/index.mjs', 'utf-8')
-const mainFiles = ['src/main/settings.ts', 'src/main/doc.ts', 'src/main/export.ts', 'src/main/user-presets.ts']
+const mainFiles = ['src/main/settings.ts', 'src/main/doc.ts', 'src/main/export.ts', 'src/main/user-presets.ts', 'src/main/subscriptions.ts']
 
 const preloadChannels = [...preload.matchAll(/invoke\(\s*["']([^"']+)["']/g)].map((m) => m[1])
 

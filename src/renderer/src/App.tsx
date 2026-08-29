@@ -44,6 +44,7 @@ import {
   EditRegular
 } from '@fluentui/react-icons'
 import PageView from './components/PageView'
+import SubscriptionDialog from './components/SubscriptionDialog'
 import PageTabs from './components/PageTabs'
 import PropertiesPanel from './components/PropertiesPanel'
 import StatusBar from './components/StatusBar'
@@ -51,12 +52,14 @@ import SettingsDialog from './components/SettingsDialog'
 import InputDialog from './components/InputDialog'
 import { useLayout } from './hooks/useLayout'
 import type { AiSettings, InfoSource, ThemeMode } from '../../shared/settings'
+import { DEFAULT_SETTINGS } from '../../shared/settings'
 import type { LayoutDoc, Slot, SlotRole } from '../../shared/layout'
 import { ROLE_DEFS, resolveRoleName } from '../../shared/layout'
 import { PRESETS, buildDocFromPreset } from '../../shared/presets'
 import { toPresetSlots, fromPresetSlots, type UserPreset } from '../../shared/user-preset'
 // enforceLength（v0.20 引入的截断重组）在 v0.21 起不再被调用，函数与测试保留在 shared/parse.ts 备用
 import { countContentChars, estimateQuota } from '../../shared/parse'
+import { buildIssueSummary, buildMemoryBlock, isSerialPrompt, rollMemory, type Subscription } from '../../shared/subscription'
 declare global {
   interface Window {
     briefy?: {
@@ -71,22 +74,31 @@ declare global {
         docContext: unknown,
         slotIndex: number,
         sources: InfoSource[],
-        estHeight: number
+        estHeight: number,
+        overrides?: Partial<AiSettings>
       ): Promise<{ content: string; usage?: { promptTokens: number; completionTokens: number; totalTokens: number } }>
       cancelGeneration(generationId: string): Promise<boolean>
       planIssue(
         generationId: string,
         outline: { index: number; role: string; prompt: string }[],
-        sources: InfoSource[]
+        sources: InfoSource[],
+        overrides?: Partial<AiSettings>
       ): Promise<{ assignments: { index: number; angle: string; quota?: number; avoid?: string }[] }>
       reviewIssue(
         generationId: string,
-        articles: { index: number; role: string; content: string }[]
+        articles: { index: number; role: string; content: string }[],
+        overrides?: Partial<AiSettings>
       ): Promise<{ comments: { index: number; problem: string; instruction: string }[] }>
       onHeartbeat(cb: (generationId: string, delta: string) => void): () => void
       devExportState(): Promise<unknown>
       /** 选择本地文件作为参考源（返回 null = 用户取消） */
       pickSourceFile(): Promise<{ path: string; name: string } | null>
+      /** 订阅（v0.26）：CRUD / 归档路径 / 打开目录 */
+      listSubscriptions(): Promise<Subscription[]>
+      saveSubscription(sub: Subscription): Promise<boolean>
+      deleteSubscription(id: string): Promise<boolean>
+      issuePath(id: string, stamp?: string): Promise<string>
+      openSubscriptionFolder(id: string): Promise<string>
       saveDoc(doc: LayoutDoc): Promise<string | null>
       openDoc(): Promise<LayoutDoc | null>
       exportPdf(doc: LayoutDoc, savePath?: string): Promise<string | null>
@@ -290,6 +302,9 @@ function App(): React.JSX.Element {
   } | null>(null)
 
   const layout = useLayout(settings?.layout)
+  /** 最新设置引用：生成链路跨渲染读（订阅出刊时临时覆盖 state 后立即生效） */
+  const settingsRef = useRef(settings)
+  settingsRef.current = settings
   const styles = useStyles()
 
   useEffect(() => {
@@ -357,7 +372,8 @@ function App(): React.JSX.Element {
     slot: Slot,
     index: number,
     docContext: { title: string; outline: { position: string; prompt: string }[] },
-    extraPrompt = ''
+    extraPrompt = '',
+    overrides?: Partial<AiSettings>
   ): Promise<void> => {
     if (cancelRef.current) return // 已请求终止：跳过队列任务
     const generationId = crypto.randomUUID()
@@ -387,7 +403,8 @@ function App(): React.JSX.Element {
             docContext,
             index,
             slot.sources ?? [],
-            slot.estHeight
+            slot.estHeight,
+            overrides
           ),
           watchdog
         ])
@@ -457,7 +474,8 @@ function App(): React.JSX.Element {
                 docContext,
                 index,
                 slot.sources ?? [],
-                slot.estHeight
+                slot.estHeight,
+                overrides
               ),
               new Promise<never>((_, rej) => setTimeout(() => rej(new Error('重写超时（120s）')), 120_000))
             ])
@@ -484,6 +502,8 @@ function App(): React.JSX.Element {
   /** 生成单个槽位（属性面板"生成此槽位"） */
   /** 实测适配状态（SlotBox 收敛后回写）：字号比例与是否溢出——质量报告以实测为准，估算只是参考 */
   const [slotFits, setSlotFits] = useState<Record<string, { fit: number; overflow: boolean }>>({})
+  /** 订阅管理弹窗 */
+  const [subsOpen, setSubsOpen] = useState(false)
   const handleFit = useCallback((slotId: string, fit: number, overflow: boolean): void => {
     setSlotFits((prev) => {
       const cur = prev[slotId]
@@ -493,7 +513,7 @@ function App(): React.JSX.Element {
   }, [])
 
   /** 收集并显示质量报告卡：生成完成时自动弹出；卡内「刷新」手动重取最新状态（含仍在生成的槽位） */
-  const collectReport = (reviewFixedCount: number): void => {
+  const collectReport = (reviewFixedCount: number, overrides?: Partial<AiSettings>): void => {
     try {
       const doc = (window as unknown as { __briefyGetDoc?: () => LayoutDoc }).__briefyGetDoc?.() ?? layout.doc
       const slots = doc.pages.flatMap((p) => p.slots)
@@ -511,7 +531,7 @@ function App(): React.JSX.Element {
                 ? !fit.overflow
                 : len >= limit * 0.8 && len <= limit * 1.15
           return {
-            role: resolveRoleName(s, settings?.customRoles),
+            role: resolveRoleName(s, overrides?.customRoles ?? settingsRef.current?.customRoles),
             status: s.status,
             len,
             limit,
@@ -529,25 +549,150 @@ function App(): React.JSX.Element {
     }
   }
 
-  const generateOne = async (slot: Slot, index: number): Promise<void> => {
+  /** 订阅质检：空槽 / 未生成 / 实测溢出 / 与上期同槽内容高度重复（3-gram 粗比） */
+  const runIssueQualityCheck = (lastSlots: { role: string; content: string }[]): { slotId: string; role: string; msg: string }[] => {
+    const doc = layout.docRef.current
+    const lastIssueSlots = lastSlots
+    const gram3 = (t: string): Set<string> => {
+      const s = t.replace(/\s+/g, '')
+      const set = new Set<string>()
+      for (let i = 0; i < s.length - 2; i++) set.add(s.slice(i, i + 3))
+      return set
+    }
+    const problems: { slotId: string; role: string; msg: string }[] = []
+    for (const page of doc.pages) {
+      for (const s of page.slots) {
+        const role = resolveRoleName(s)
+        if (s.status !== 'done') {
+          problems.push({ slotId: s.id, role, msg: '未生成成功' })
+          continue
+        }
+        if (!s.content?.trim()) {
+          problems.push({ slotId: s.id, role, msg: '内容为空' })
+          continue
+        }
+        const fit = slotFits[s.id]
+        if (fit?.overflow) problems.push({ slotId: s.id, role, msg: '版面溢出（字号下限仍装不下）' })
+        // 与上期同槽查重（出刊不可改，重复是硬伤）
+        const prev = lastIssueSlots.find((p) => p.role === role)
+        if (prev && prev.content.length > 50 && s.content!.length > 50) {
+          const a = gram3(s.content!)
+          const b = gram3(prev.content)
+          let hit = 0
+          for (const g of a) if (b.has(g)) hit++
+          const sim = a.size > 0 ? hit / a.size : 0
+          if (sim > 0.6) problems.push({ slotId: s.id, role, msg: `与上期内容高度重复（相似度 ${Math.round(sim * 100)}%）` })
+        }
+      }
+    }
+    return problems
+  }
+
+  /** 订阅出刊流程（v0.26）：模板装载 → 记忆注入（含连载线直通）→ 生成 → 强化审查 2 轮 → PDF 归档 → 记忆写回。
+   *  设置覆盖仅内存态（UI 同步切换订阅主题/版式，出刊后恢复；不写 settings.json） */
+  const pushSubscriptionIssue = async (sub: Subscription, stamp?: string): Promise<void> => {
+    if (!window.briefy || generating) return
+    // 模板深拷贝装载：记忆注入改的是副本，模板文件不受污染
+    const docClone = structuredClone(sub.template.doc)
+    const memBlock = buildMemoryBlock(sub.memory)
+    const lastIssue = sub.issues[sub.issues.length - 1]
+    for (const page of docClone.pages) {
+      for (const slot of page.slots) {
+        let prefix = memBlock
+        // 连载线直通：提示词含续写意图 → 注入上一期该栏完整内容
+        if (isSerialPrompt(slot.prompt) && lastIssue) {
+          const roleName = resolveRoleName(slot, sub.template.customRoles)
+          const prev = lastIssue.slots.find((p) => p.role === roleName)
+          if (prev?.content.trim()) {
+            prefix += `【连载续写】以下是上一期本栏目的完整内容，请在此基础上自然延续（承接故事线与未完话题，不要重复原文）：\n${prev.content}\n\n`
+          }
+        }
+        slot.prompt = prefix + slot.prompt
+      }
+    }
+    const overrides: Partial<AiSettings> = {
+      model: sub.template.model,
+      baseUrl: sub.template.baseUrl,
+      theme: sub.template.theme,
+      stylePrompt: sub.template.stylePrompt,
+      roleDuties: sub.template.roleDuties,
+      customRoles: sub.template.customRoles,
+      editorial: sub.template.editorial,
+      layout: sub.template.layout
+    }
+    const prevSettings = settingsRef.current
+    const issueSettings = { ...prevSettings, ...overrides } as AiSettings
+    const issuedAt = new Date().toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+    let repaired = 0
+    let problems: { slotId: string; role: string; msg: string }[] = []
+    try {
+      setSettings(issueSettings)
+      settingsRef.current = issueSettings
+      layout.loadDoc(docClone)
+      layout.docRef.current = docClone // 装载后立即同步引用（不等渲染，供本次闭包内读取）
+      await generateAll(overrides)
+      // 强化审查：不合格槽位自动重生成，最多 2 轮；仍不合格标记瑕疵出刊
+      const lastSlots = lastIssue?.slots ?? []
+      for (let round = 0; round < 2; round++) {
+        problems = runIssueQualityCheck(lastSlots)
+        if (problems.length === 0) break
+        const doc = layout.docRef.current
+        const all = doc.pages.flatMap((p) => p.slots)
+        const bad = all.filter((s) => problems.some((p) => p.slotId === s.id))
+        for (const s of bad) {
+          await generateOne(s, all.findIndex((x) => x.id === s.id), overrides)
+          repaired++
+        }
+      }
+      // PDF 归档 + 记忆写回
+      const pdfPath = await window.briefy.issuePath(sub.id, stamp)
+      await window.briefy.exportPdf(layout.docRef.current, pdfPath)
+      const summary = buildIssueSummary(layout.docRef.current, issuedAt)
+      const memory = rollMemory(sub.memory, summary)
+      const slots = layout.docRef.current.pages
+        .flatMap((p) => p.slots)
+        .filter((s) => s.status === 'done' && s.content?.trim())
+        .map((s) => ({ role: resolveRoleName(s, sub.template.customRoles), content: s.content ?? '' }))
+      const record = {
+        id: crypto.randomUUID(),
+        issuedAt,
+        pdfPath,
+        quality: { passed: problems.length === 0, issues: problems.map((p) => `${p.role}：${p.msg}`), repaired },
+        summary,
+        slots
+      }
+      // 重新生成指定期：替换旧记录（PDF 同路径覆盖）；否则追加新期
+      const issues = stamp
+        ? sub.issues.map((r) => (r.pdfPath === pdfPath ? record : r))
+        : [...sub.issues, record]
+      await window.briefy.saveSubscription({ ...sub, memory, issues })
+    } finally {
+      settingsRef.current = prevSettings
+      setSettings(prevSettings)
+    }
+  }
+
+  const generateOne = async (slot: Slot, index: number, overrides?: Partial<AiSettings>): Promise<void> => {
     if (!window.briefy || generating) return
     setGenerating(true)
     try {
+      const doc = layout.docRef.current
       const docContext = {
-        title: layout.doc.title,
-        outline: layout.doc.pages.flatMap((page, pi) =>
+        title: doc.title,
+        outline: doc.pages.flatMap((page, pi) =>
           page.slots.map((s) => ({ position: `第${pi + 1}页·${resolveRoleName(s)}`, prompt: s.prompt }))
         )
       }
-      await runSlotTask(slot, index, docContext)
+      await runSlotTask(slot, index, docContext, '', overrides)
     } finally {
       setHeartbeat(null)
       setGenerating(false)
     }
   }
 
-  /** 并发生成所有槽位（并发上限 3），逐槽回填；附带文档大纲供 AI 语篇决策 */
-  const generateAll = async (): Promise<void> => {
+  /** 并发生成所有槽位（并发上限 3），逐槽回填；附带文档大纲供 AI 语篇决策。
+   *  overrides：订阅出刊时传模板固化配置（仅本次生成生效，不写 settings.json） */
+  const generateAll = async (overrides?: Partial<AiSettings>): Promise<void> => {
     if (!window.briefy) return
     // 生成中再次点击 = 终止：标记取消（worker 不再取新任务）+ abort 在途任务
     if (generating) {
@@ -562,9 +707,10 @@ function App(): React.JSX.Element {
     setHeartbeat(null)
     setGenerating(true)
     try {
+      const docNow = layout.docRef.current
       const tasks: { pageId: string; slot: Slot; index: number }[] = []
       let index = 0
-      for (const page of layout.doc.pages) {
+      for (const page of docNow.pages) {
         for (const slot of page.slots) {
           if (!slot.prompt.trim()) continue // 无提示词的槽位跳过
           tasks.push({ pageId: page.id, slot, index })
@@ -574,8 +720,8 @@ function App(): React.JSX.Element {
       tasksRef.current = tasks.map((t) => ({ slot: t.slot, index: t.index }))
       // 语篇上下文：整份报纸的槽位大纲（角色+职责）
       const docContext = {
-        title: layout.doc.title,
-        outline: layout.doc.pages.flatMap((page, pi) =>
+        title: docNow.title,
+        outline: docNow.pages.flatMap((page, pi) =>
           page.slots.map((s) => ({
             position: `第${pi + 1}页·${resolveRoleName(s)}`,
             prompt: s.prompt
@@ -584,14 +730,14 @@ function App(): React.JSX.Element {
       }
 
       // ---- 编辑部模式（ROADMAP Q2）：选题 → 写作 → 审稿；任一环节失败自动降级为旧流程 ----
-      const editorial = settings?.editorial?.enabled === true
+      const editorial = overrides?.editorial?.enabled ?? settingsRef.current?.editorial?.enabled === true
       /** 选题单：index → 附加指令 */
       const assignmentMap = new Map<number, string>()
 
       if (editorial && tasks.length > 0) {
         // 快照：生成开始前存当前版（审稿应用改写前可还原）
         try {
-          localStorage.setItem('briefy-snapshot', JSON.stringify(layout.doc))
+          localStorage.setItem('briefy-snapshot', JSON.stringify(docNow))
         } catch { /* 超限则忽略 */ }
 
         setPhase('选题中…')
@@ -600,7 +746,7 @@ function App(): React.JSX.Element {
           inFlightRef.current.add(planId)
           const outline = tasks.map((t) => ({ index: t.index, role: resolveRoleName(t.slot), prompt: t.slot.prompt }))
           const flatSources = [...new Map(tasks.flatMap((t) => t.slot.sources ?? []).map((s) => [s.url, s])).values()]
-          const plan = await window.briefy.planIssue(planId, outline, flatSources)
+          const plan = await window.briefy.planIssue(planId, outline, flatSources, overrides)
           for (const a of plan.assignments) {
             const parts = [`【本期选题】${a.angle}`]
             if (a.quota) parts.push(`（建议 ${a.quota} 字以内）`)
@@ -622,7 +768,7 @@ function App(): React.JSX.Element {
       const worker = async (): Promise<void> => {
         while (!cancelRef.current && cursor < tasks.length) {
           const task = tasks[cursor++]
-          await runSlotTask(task.slot, task.index, docContext, assignmentMap.get(task.index) ?? '')
+          await runSlotTask(task.slot, task.index, docContext, assignmentMap.get(task.index) ?? '', overrides)
         }
       }
       await Promise.all(Array.from({ length: Math.min(CONCURRENCY, tasks.length) }, worker))
@@ -638,11 +784,11 @@ function App(): React.JSX.Element {
           const articles = tasks.map((t) => ({
             index: t.index,
             role: resolveRoleName(t.slot),
-            content: layout.doc.pages.flatMap((p) => p.slots).find((s) => s.id === t.slot.id)?.content ?? ''
+            content: docNow.pages.flatMap((p) => p.slots).find((s) => s.id === t.slot.id)?.content ?? ''
           }))
           const valid = articles.filter((a) => a.content.trim())
           if (valid.length > 0) {
-            const review = await window.briefy.reviewIssue(reviewId, valid)
+            const review = await window.briefy.reviewIssue(reviewId, valid, overrides)
             // 自动执行：按意见逐条重写（顺序，避免并发写冲突）
             for (const c of review.comments) {
               if (cancelRef.current) break
@@ -652,7 +798,8 @@ function App(): React.JSX.Element {
                 task.slot,
                 c.index,
                 docContext,
-                `【主编审稿指令】审稿发现问题：${c.problem}。${c.instruction}`
+                `【主编审稿指令】审稿发现问题：${c.problem}。${c.instruction}`,
+                overrides
               )
               reviewFixed++
             }
@@ -663,7 +810,7 @@ function App(): React.JSX.Element {
       }
 
       // ---- 质量报告卡（ROADMAP 反馈：让改进可见）----
-      collectReport(reviewFixed)
+      collectReport(reviewFixed, overrides)
     } finally {
       cancelRef.current = false
       setPhase(null)
@@ -899,6 +1046,17 @@ function App(): React.JSX.Element {
               </MenuList>
             </MenuPopover>
           </Menu>
+          <Tooltip
+            content="订阅：把当前设计固化为模板，点击即按模板出一期 PDF（带往期记忆，可连载）"
+            relationship="description"
+          >
+            <ToolbarButton
+              icon={<AppsRegular />}
+              onClick={() => setSubsOpen(true)}
+            >
+              订阅
+            </ToolbarButton>
+          </Tooltip>
           <Menu>
             <MenuTrigger disableButtonEnhancement>
               <Tooltip content="一键套用整套版面（槽位+提示词+工具）；也可把当前版面存为自己的预设" relationship="description">
@@ -1128,7 +1286,18 @@ function App(): React.JSX.Element {
           onCancel={() => setInputDialog(null)}
         />
 
-        {/* 质量报告卡（ROADMAP 反馈：让改进可见） */}
+      {/* 订阅管理（v0.26）：模板固化出刊 */}
+      <SubscriptionDialog
+        open={subsOpen}
+        onClose={() => setSubsOpen(false)}
+        currentDoc={layout.doc}
+        currentSettings={settings ?? DEFAULT_SETTINGS}
+        onPushIssue={(sub, stamp) => pushSubscriptionIssue(sub, stamp)}
+        generating={generating}
+        phase={phase}
+      />
+
+      {/* 质量报告卡（ROADMAP 反馈：让改进可见） */}
         <Dialog open={qualityReport !== null} onOpenChange={(_, d) => { if (!d.open) setQualityReport(null) }}>
           <DialogSurface>
             <DialogBody>

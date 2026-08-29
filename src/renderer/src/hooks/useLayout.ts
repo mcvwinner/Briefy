@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import {
   createEmptyDoc,
   createEmptyPage,
@@ -23,6 +23,9 @@ import { parseLayoutDoc } from '../../../shared/layout'
  *  prefs：版式偏好（页边距/栏距），缺省 = 内置默认 */
 export function useLayout(prefs?: LayoutPrefs) {
   const [doc, setDoc] = useState<LayoutDoc>(createEmptyDoc)
+  /** 最新文档引用：异步任务（订阅出刊/生成）跨渲染读最新 doc，避免闭包过期 */
+  const docRef = useRef(doc)
+  docRef.current = doc
   const [selectedSlotId, setSelectedSlotId] = useState<string | null>(null)
   const [currentPageId, setCurrentPageId] = useState<string>(() => doc.pages[0].id)
   const geo = useMemo<LayoutGeometry>(() => resolveGeometry(prefs), [prefs?.marginMM, prefs?.gapMM])
@@ -288,6 +291,7 @@ export function useLayout(prefs?: LayoutPrefs) {
 
   return {
     doc,
+    docRef,
     selection,
     selectedSlotId,
     currentPageId,
