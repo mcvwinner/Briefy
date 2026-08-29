@@ -54,6 +54,7 @@ import type { LayoutDoc, Slot, SlotRole } from '../../shared/layout'
 import { ROLE_DEFS, resolveRoleName } from '../../shared/layout'
 import { PRESETS, buildDocFromPreset } from '../../shared/presets'
 import { toPresetSlots, fromPresetSlots, type UserPreset } from '../../shared/user-preset'
+import { enforceLength } from '../../shared/parse'
 
 declare global {
   interface Window {
@@ -324,9 +325,11 @@ function App(): React.JSX.Element {
   const [generating, setGenerating] = useState(false)
   /** 编辑部阶段（ROADMAP Q2）：null = 非编辑部模式或未到阶段 */
   const [phase, setPhase] = useState<'选题中…' | '写作中…' | '审稿中…' | null>(null)
-  /** 审稿意见（生成完成后弹出，一键应用或忽略） */
-  const [reviewState, setReviewState] = useState<{
-    comments: { index: number; role: string; problem: string; instruction: string }[]
+  /** 质量报告卡（ROADMAP 反馈：让改进可见） */
+  const [qualityReport, setQualityReport] = useState<{
+    rows: { role: string; status: string; len: number; limit: number; ok: boolean | null; hasSource: boolean }[]
+    usage?: { promptTokens: number; completionTokens: number; totalTokens: number }
+    reviewFixed: number
   } | null>(null)
   /** AI 输出心跳（流式增量累积全文尾部，供浮动工作台面板实时展示防"卡住"观感） */
   const [heartbeat, setHeartbeat] = useState<string | null>(null)
@@ -419,6 +422,44 @@ function App(): React.JSX.Element {
           return
         }
       }
+      // ---- 长度工程（ROADMAP 反馈：版面被撑爆/留白）----
+      // 字数超限（上限+25% 容差）→ 先重写一次（带字数强约束），仍超则按段落边界截断重组
+      const wordLimit = Math.max(40, Math.round(slot.estHeight * 4.5))
+      const cleanLen = (t: string): number =>
+        t.split('\n').filter((l) => !l.trim().startsWith(':::')).join('').replace(/\s+/g, '').length
+      if (content && cleanLen(content) > wordLimit * 1.25) {
+        // 退稿重写：明确告知超限与目标字数
+        try {
+          layout.updateSlot(slot.id, { status: 'generating' })
+          const retryId = crypto.randomUUID()
+          inFlightRef.current.add(retryId)
+          try {
+            const retry = await Promise.race([
+              window.briefy!.generateSlot(
+                retryId,
+                `${slot.prompt}\n\n【退稿重写】你上一稿写了 ${cleanLen(content)} 字，超出上限 ${wordLimit} 字被主编退稿。这次严格控制在 ${wordLimit} 字以内：保留最重要的信息，删除次要细节与重复修饰。`,
+                resolveRoleName(slot),
+                slot.kind,
+                slot.tools ?? ['getCurrentTime'],
+                docContext,
+                index,
+                slot.sources ?? [],
+                slot.estHeight
+              ),
+              new Promise<never>((_, rej) => setTimeout(() => rej(new Error('重写超时（120s）')), 120_000))
+            ])
+            content = retry.content
+          } finally {
+            void window.briefy?.cancelGeneration(retryId)
+            inFlightRef.current.delete(retryId)
+          }
+        } catch {
+          // 重写失败：保留原稿，走下方截断兜底
+        }
+        if (content && cleanLen(content) > wordLimit * 1.25) {
+          content = enforceLength(content, wordLimit).text
+        }
+      }
       layout.updateSlot(slot.id, { content: content ?? '（生成失败：空响应）', status: 'done' })
     } finally {
       inFlightRef.current.delete(generationId)
@@ -455,7 +496,6 @@ function App(): React.JSX.Element {
       return
     }
     cancelRef.current = false
-    setReviewState(null)
     heartbeatBufRef.current = ''
     setHeartbeat(null)
     setGenerating(true)
@@ -526,7 +566,8 @@ function App(): React.JSX.Element {
       await Promise.all(Array.from({ length: Math.min(CONCURRENCY, tasks.length) }, worker))
       if (cancelRef.current) return
 
-      // ---- 审稿：一次自检调用，意见弹出待用户一键应用（失败静默忽略） ----
+      // ---- 审稿：一次自检调用；意见**自动执行重写**（ROADMAP 反馈：审稿要有牙齿），失败静默忽略 ----
+      let reviewFixed = 0
       if (editorial && tasks.length > 0) {
         setPhase('审稿中…')
         try {
@@ -540,46 +581,54 @@ function App(): React.JSX.Element {
           const valid = articles.filter((a) => a.content.trim())
           if (valid.length > 0) {
             const review = await window.briefy.reviewIssue(reviewId, valid)
-            if (review.comments.length > 0) {
-              setReviewState({
-                comments: review.comments
-                  .map((c) => {
-                    const task = tasks.find((t) => t.index === c.index)
-                    return task ? { ...c, role: resolveRoleName(task.slot) } : null
-                  })
-                  .filter((c): c is { index: number; role: string; problem: string; instruction: string } => c !== null)
-              })
+            // 自动执行：按意见逐条重写（顺序，避免并发写冲突）
+            for (const c of review.comments) {
+              if (cancelRef.current) break
+              const task = tasks.find((t) => t.index === c.index)
+              if (!task) continue
+              await runSlotTask(
+                task.slot,
+                c.index,
+                docContext,
+                `【主编审稿指令】审稿发现问题：${c.problem}。${c.instruction}`
+              )
+              reviewFixed++
             }
           }
         } catch (err) {
           console.warn('审稿失败（忽略，不影响成品）：', err)
         }
       }
+
+      // ---- 质量报告卡（ROADMAP 反馈：让改进可见）----
+      try {
+        const doc = (window as unknown as { __briefyGetDoc?: () => ReturnType<() => LayoutDoc> }).__briefyGetDoc?.() ?? layout.doc
+        const slots = doc.pages.flatMap((p: LayoutDoc['pages'][number]) => p.slots)
+        const usage = (window as unknown as { __briefyUsage?: { promptTokens: number; completionTokens: number; totalTokens: number } }).__briefyUsage
+        setQualityReport({
+          rows: slots.map((s) => {
+            const len = (s.content ?? '').split('\n').filter((l) => !l.trim().startsWith(':::')).join('').replace(/\s+/g, '').length
+            const limit = Math.max(40, Math.round(s.estHeight * 4.5))
+            return {
+              role: resolveRoleName(s, settings?.customRoles),
+              status: s.status,
+              len,
+              limit,
+              ok: s.status !== 'done' ? null : len <= limit * 1.25,
+              hasSource: (s.sources?.length ?? 0) > 0
+            }
+          }),
+          usage,
+          reviewFixed
+        })
+      } catch {
+        // 报告失败不影响成品
+      }
     } finally {
       cancelRef.current = false
       setPhase(null)
       setHeartbeat(null)
       setGenerating(false)
-    }
-  }
-
-  /** 一键应用某条审稿意见：按指令重写对应槽位（复用单槽生成） */
-  const applyReviewComment = async (comment: { index: number; role: string; problem: string; instruction: string }): Promise<void> => {
-    const task = tasksRef.current.find((t) => t.index === comment.index)
-    if (!task || !window.briefy || generating) return
-    setGenerating(true)
-    try {
-      const docContext = {
-        title: layout.doc.title,
-        outline: layout.doc.pages.flatMap((page, pi) =>
-          page.slots.map((s) => ({ position: `第${pi + 1}页·${resolveRoleName(s)}`, prompt: s.prompt }))
-        )
-      }
-      await runSlotTask(task.slot, comment.index, docContext, `【主编审稿指令】${comment.problem}。${comment.instruction}`)
-    } finally {
-      setGenerating(false)
-      setHeartbeat(null)
-      setReviewState(null)
     }
   }
 
@@ -1008,47 +1057,55 @@ function App(): React.JSX.Element {
           onCancel={() => setInputDialog(null)}
         />
 
-        {/* 审稿意见面板（ROADMAP Q2）：一键应用重写 / 忽略 */}
-        <Dialog open={reviewState !== null} onOpenChange={(_, d) => { if (!d.open) setReviewState(null) }}>
+        {/* 质量报告卡（ROADMAP 反馈：让改进可见） */}
+        <Dialog open={qualityReport !== null} onOpenChange={(_, d) => { if (!d.open) setQualityReport(null) }}>
           <DialogSurface>
             <DialogBody>
-              <DialogTitle>主编审稿意见</DialogTitle>
+              <DialogTitle>本期质量报告</DialogTitle>
               <DialogContent>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  {reviewState?.comments.map((c, i) => (
-                    <div
-                      key={i}
-                      style={{
-                        padding: '10px',
-                        border: `1px solid ${tokens.colorNeutralStroke2}`,
-                        borderRadius: tokens.borderRadiusMedium
-                      }}
-                    >
-                      <div style={{ fontWeight: tokens.fontWeightSemibold, marginBottom: '4px' }}>
-                        {c.role}：{c.problem}
-                      </div>
-                      <div style={{ fontSize: tokens.fontSizeBase200, color: tokens.colorNeutralForeground2 }}>
-                        指令：{c.instruction}
-                      </div>
-                      <Button
-                        size="small"
-                        appearance="primary"
-                        style={{ marginTop: '8px' }}
-                        disabled={generating}
-                        onClick={() => void applyReviewComment(c)}
-                      >
-                        按指令重写此槽
-                      </Button>
-                    </div>
-                  ))}
-                  <p style={{ fontSize: tokens.fontSizeBase200, color: tokens.colorNeutralForeground3, margin: 0 }}>
-                    生成前的版本已自动存为快照；如需还原，请使用"文件 → 还原上次生成前快照"。
-                  </p>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: tokens.fontSizeBase200 }}>
+                  <thead>
+                    <tr style={{ textAlign: 'left', borderBottom: `1px solid ${tokens.colorNeutralStroke2}` }}>
+                      <th style={{ padding: '4px 6px' }}>槽位</th>
+                      <th style={{ padding: '4px 6px' }}>状态</th>
+                      <th style={{ padding: '4px 6px' }}>字数/上限</th>
+                      <th style={{ padding: '4px 6px' }}>来源</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {qualityReport?.rows.map((r, i) => (
+                      <tr key={i} style={{ borderBottom: `1px solid ${tokens.colorNeutralStroke2}` }}>
+                        <td style={{ padding: '4px 6px' }}>{r.role}</td>
+                        <td style={{ padding: '4px 6px', color: r.status === 'done' ? tokens.colorPaletteGreenForeground1 : tokens.colorPaletteRedForeground1 }}>
+                          {r.status === 'done' ? '✓ 完成' : r.status === 'error' ? '✗ 失败' : r.status}
+                        </td>
+                        <td style={{ padding: '4px 6px' }}>
+                          {r.status === 'done' ? (
+                            <span style={{ color: r.ok ? tokens.colorPaletteGreenForeground1 : tokens.colorPaletteRedForeground1 }}>
+                              {r.len}/{r.limit} {r.ok ? '✓' : '超限已裁'}
+                            </span>
+                          ) : (
+                            '—'
+                          )}
+                        </td>
+                        <td style={{ padding: '4px 6px' }}>{r.hasSource ? '✓' : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '4px', fontSize: tokens.fontSizeBase200, color: tokens.colorNeutralForeground2 }}>
+                  {qualityReport?.reviewFixed ? <span>🪄 审稿自动修复：{qualityReport.reviewFixed} 处</span> : null}
+                  {qualityReport?.usage ? (
+                    <span>
+                      Token 用量：输入 {qualityReport.usage.promptTokens} + 输出 {qualityReport.usage.completionTokens} = {qualityReport.usage.totalTokens}
+                    </span>
+                  ) : null}
+                  <span>生成前的版本已存为快照（文件 → 还原上次生成前快照）。</span>
                 </div>
               </DialogContent>
               <DialogActions>
                 <DialogTrigger disableButtonEnhancement>
-                  <Button appearance="secondary">忽略</Button>
+                  <Button appearance="primary">好的</Button>
                 </DialogTrigger>
               </DialogActions>
             </DialogBody>

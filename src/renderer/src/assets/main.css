@@ -76,10 +76,10 @@
 
 .drop-cap {
   float: left;
-  font-size: 26pt;
-  line-height: 0.85;
-  padding: 2px 6px 0 0;
-  font-weight: 700;
+  font-size: 34pt;
+  line-height: 0.9;
+  padding: 4px 8px 0 0;
+  font-weight: 800;
   color: var(--colorBrandForeground1, #0f6cbd);
 }
 
