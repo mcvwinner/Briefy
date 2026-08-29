@@ -282,8 +282,9 @@ function SlotBox({
   return (
     <div
       ref={ref}
-      className={`${styles.slot} ${selected ? styles.slotSelected : ''} ${hovered ? styles.slotHover : ''} ${slot.status === 'generating' ? 'slot-generating' : ''}`}
+      className={`briefy-slot ${styles.slot} ${selected ? styles.slotSelected : ''} ${hovered ? styles.slotHover : ''} ${slot.status === 'generating' ? 'slot-generating' : ''} ${selected ? 'slot-role-visible' : ''}`}
       data-slot-id={slot.id}
+      data-role={slot.role}
       style={{
         ['--briefy-fit' as string]: fitScale,
         ...(fillHeight ? { height: '100%', overflow: 'hidden' } : {})
@@ -292,7 +293,7 @@ function SlotBox({
       onPointerEnter={() => setHovered(true)}
       onPointerLeave={() => setHovered(false)}
     >
-      <span className={styles.roleBadge}>{roleName}</span>
+      <span className={`${styles.roleBadge} slot-role-badge`}>{roleName}</span>
       {children}
       {selected && onResizeStart && <span className={styles.resizeHandle} onPointerDown={onResizeStart} />}
     </div>

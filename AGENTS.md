@@ -102,6 +102,7 @@
 - [x] 文件参考源（v0.25.0：InfoSource 加 kind:file + path，支持 txt/md/csv/json/log/pdf/docx（新增 pdf-parse/mammoth，npmmirror 安装，pdf-parse 需 @ts-ignore 引内部模块）；AI 经 readSource 工具按需分块读取（4000 字/块）每文件限 3 次，不预注入；pick-file IPC + 设置页/属性面板入口；实测 AI 精确引用文件事实）
 - [x] 订阅功能（v0.26.0 已实现并实测通过：订阅管理 Dialog（模板固化无 Key/推送新一期/重新出刊指定期/归档目录）+ 分层记忆（最近 3 期+滚动总览）+ 连载线直通（prompt 含继续/连载注入上期全文）+ 强化审查 2 轮 + PDF 归档；生成/选题/审稿 IPC 支持 overrides 内存态覆盖；settingsRef/docRef 消除出刊闭包陷阱；单测 test:subscription）
 - [x] AI 提炼订阅记忆（v0.27.0：出刊后 summarizeIssue 档案员调用提炼结构化摘要（headline+每栏要点保关键事实），失败降级截断摘要；摘要模型用审稿模型）
+- [x] 打磨批（v0.28.0：槽位边框按角色线型多样化（头条双线/数据虚线/快讯点线…）+ 徽章按需显形；手动布局按钮移位；属性面板 hint 悬停引导；README 全面重写；下一批：手动布局参考线/键盘微调 → 自由槽位 → 关联槽位机制）
 
 ## 7. P6 增强能力包计划（v0.12 起，已与用户对齐）
 

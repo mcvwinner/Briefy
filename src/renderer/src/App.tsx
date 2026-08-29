@@ -1172,6 +1172,7 @@ function App(): React.JSX.Element {
           >
             <ToolbarButton
               icon={<EditRegular />}
+              style={{ marginRight: 14 }}
               appearance={layout.doc.layoutMode === 'manual' ? 'primary' : undefined}
               onClick={() => layout.setMode(layout.doc.layoutMode === 'manual' ? 'auto' : 'manual')}
             >

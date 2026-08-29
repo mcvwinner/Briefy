@@ -184,7 +184,11 @@ function PropertiesPanel({
     <aside className={styles.panel}>
       <h2 className={styles.title}>槽位属性</h2>
 
-      <Field label="槽位角色（决定 AI 的职责）" className={styles.fieldGap}>
+      <Field
+        label="槽位角色（决定 AI 的职责）"
+        hint={{ children: '内置角色有固定职责与推荐控件；自定义角色在 设置 → 生成 中维护职责' } as never}
+        className={styles.fieldGap}
+      >
         <Dropdown
           value={resolveRoleName(slot, customRoles)}
           selectedOptions={[slot.role === 'custom' ? `custom:${slot.customRoleName ?? ''}` : slot.role]}
@@ -245,6 +249,7 @@ function PropertiesPanel({
 
       <Field
         label="提示词（这一格要什么；下方按钮可快速插入控件模板）"
+        hint={{ children: '写得越具体越好：主题、角度、字数、风格；留空则生成时跳过此槽' } as never}
         className={styles.fieldGap}
       >
         <Textarea
@@ -276,7 +281,11 @@ function PropertiesPanel({
         </div>
       </Field>
 
-      <Field label="宽度（版式自动重排）" className={styles.fieldGap}>
+      <Field
+        label="宽度（版式自动重排）"
+        hint={{ children: '全宽 = 独占一行；半栏 = 左右并排；侧栏 = 窄条侧边' } as never}
+        className={styles.fieldGap}
+      >
         <Dropdown
           value={WIDTH_OPTIONS.find((w) => w.value === widthMode)?.text ?? '全宽'}
           selectedOptions={[widthMode]}
@@ -304,7 +313,11 @@ function PropertiesPanel({
         </Dropdown>
       </Field>
 
-      <Field label="AI 可用工具" className={styles.fieldGap}>
+      <Field
+        label="AI 可用工具"
+        hint={{ children: '勾选后 AI 生成时可主动调用：获取时间（时效内容必选）/ 联网搜索 / 抓网页' } as never}
+        className={styles.fieldGap}
+      >
         {TOOL_OPTIONS.map(({ id, label, hint }) => (
           <Checkbox
             key={id}
@@ -499,7 +512,11 @@ function WidgetEditor({
   }
 
   return (
-    <Field label={`控件实例（${instances.length}）`} className={styles.fieldGap}>
+      <Field
+        label={`控件实例（${instances.length}）`}
+        hint={{ children: 'AI 输出中检测到的可视化控件，展开即可表单化修改参数' } as never}
+        className={styles.fieldGap}
+      >
       <Accordion openItems={openLine} onToggle={(_, d) => setOpenLine(d.openItems as number[])}>
         {instances.map(({ lineIndex, id, params }) => {
           const def = WIDGET_REGISTRY[id]

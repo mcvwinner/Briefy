@@ -392,3 +392,50 @@
   from { opacity: 0; transform: translateX(-50%) scale(0.9); }
   to { opacity: 1; transform: translateX(-50%) scale(1); }
 }
+
+/* ---------- 槽位多样化边框（v0.28：按角色线型区分，报纸栏目风） ----------
+   编辑态辨识 + 成品质感兼顾：线型随角色变化，选中/hover 由 Griffel 叠加强调 */
+.briefy-slot[data-role='headline'] {
+  border: 3px double var(--colorNeutralStroke1, #c7c7c7) !important;
+  background: transparent;
+}
+.briefy-slot[data-role='body'] {
+  border: 1px solid var(--colorNeutralStroke2, #dde1e6) !important;
+  background: transparent;
+}
+.briefy-slot[data-role='stats'] {
+  border: 1px dashed var(--colorNeutralStroke1, #c7c7c7) !important;
+  background: transparent;
+}
+.briefy-slot[data-role='briefs'] {
+  border: 1px dotted var(--colorNeutralStroke1, #c7c7c7) !important;
+  background: transparent;
+}
+.briefy-slot[data-role='notice'] {
+  border: 1px solid var(--colorNeutralStroke1, #c7c7c7) !important;
+  background: var(--colorNeutralBackground3, #fafbfc);
+}
+.briefy-slot[data-role='custom'],
+.briefy-slot[data-role='free'] {
+  border: 1px solid var(--colorBrandForeground1, #0f6cbd) !important;
+  background: transparent;
+}
+.briefy-slot[data-role='headline']:hover,
+.briefy-slot[data-role='body']:hover,
+.briefy-slot[data-role='stats']:hover,
+.briefy-slot[data-role='briefs']:hover,
+.briefy-slot[data-role='notice']:hover,
+.briefy-slot[data-role='custom']:hover,
+.briefy-slot[data-role='free']:hover {
+  border-color: var(--colorNeutralStroke1Hover, #979797) !important;
+}
+
+/* 角色徽章按需显形：默认隐藏，hover/选中时浮现（v0.28） */
+.briefy-slot .slot-role-badge {
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.briefy-slot:hover .slot-role-badge,
+.briefy-slot.slot-role-visible .slot-role-badge {
+  opacity: 1;
+}
