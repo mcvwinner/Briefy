@@ -421,13 +421,15 @@ function App(): React.JSX.Element {
           return
         }
       }
-      // ---- 长度工程（ROADMAP 反馈：版面被撑爆/留白）----
-      // 字数超限（上限+25% 容差）→ 先重写一次（带字数强约束），仍超则按段落边界截断重组
+      // ---- 长度协调（v0.22：槽位定字数；偏差小微调，偏差大退稿）----
+      // 可接受区间 80%~115%（用户约定）：区间内交给渲染层字号微调（少→增大字号，多→缩小字号/放宽槽位）；
+      // 区间外打回重写一次（带方向性字数引导），重写后仍偏差大则不再截断，由渲染层调槽位/字号兜底
       const wordLimit = Math.max(40, Math.round(slot.estHeight * 4.5))
       const cleanLen = (t: string): number =>
         t.split('\n').filter((l) => !l.trim().startsWith(':::')).join('').replace(/\s+/g, '').length
-      if (content && cleanLen(content) > wordLimit * 1.25) {
-        // 退稿重写：明确告知超限与目标字数
+      const ratio = content ? cleanLen(content) / wordLimit : 1
+      if (content && (ratio > 1.15 || ratio < 0.8)) {
+        const tooLong = ratio > 1.15
         try {
           layout.updateSlot(slot.id, { status: 'generating' })
           const retryId = crypto.randomUUID()
@@ -436,7 +438,9 @@ function App(): React.JSX.Element {
             const retry = await Promise.race([
               window.briefy!.generateSlot(
                 retryId,
-                `${slot.prompt}\n\n【退稿重写】你上一稿写了 ${cleanLen(content)} 字，超出上限 ${wordLimit} 字被主编退稿。这次严格控制在 ${wordLimit} 字以内：保留最重要的信息，删除次要细节与重复修饰。`,
+                tooLong
+                  ? `${slot.prompt}\n\n【退稿重写】你上一稿写了 ${cleanLen(content)} 字，超出目标 ${wordLimit} 字较多被主编退稿。这次控制在 ${wordLimit} 字左右（上下浮动不超过 15%）：保留最重要的信息，删除次要细节与重复修饰。`
+                  : `${slot.prompt}\n\n【退稿重写】你上一稿只写了 ${cleanLen(content)} 字，距目标 ${wordLimit} 字差距较大被主编退稿。这次写到 ${wordLimit} 字左右（上下浮动不超过 15%）：补充具体细节、数据与背景，展开论述，不要空洞凑字。`,
                 resolveRoleName(slot),
                 slot.kind,
                 slot.tools ?? ['getCurrentTime'],
@@ -455,7 +459,7 @@ function App(): React.JSX.Element {
         } catch {
           // 重写失败：保留原稿
         }
-        // 重写后仍超限：不再截断，交给渲染层自适应缩字号适配（v0.21.0：超长不砍内容，缩小字号装进槽位；极长则溢出跨页自然流）
+        // 重写后仍偏差大：不砍内容不强缩——超限交给渲染层放宽槽位兜底，太短交给渲染层增大字号填充
       }
       layout.updateSlot(slot.id, { content: content ?? '（生成失败：空响应）', status: 'done' })
     } finally {
@@ -611,7 +615,7 @@ function App(): React.JSX.Element {
               status: s.status,
               len,
               limit,
-              ok: s.status !== 'done' ? null : len <= limit * 1.25,
+              ok: s.status !== 'done' ? null : len >= limit * 0.8 && len <= limit * 1.15,
               hasSource: (s.sources?.length ?? 0) > 0
             }
           }),
@@ -1079,7 +1083,7 @@ function App(): React.JSX.Element {
                         <td style={{ padding: '4px 6px' }}>
                           {r.status === 'done' ? (
                             <span style={{ color: r.ok ? tokens.colorPaletteGreenForeground1 : tokens.colorPaletteRedForeground1 }}>
-                              {r.len}/{r.limit} {r.ok ? '✓' : '超限已裁'}
+                              {r.len}/{r.limit} {r.ok ? '✓' : '偏差大'}
                             </span>
                           ) : (
                             '—'

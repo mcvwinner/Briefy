@@ -217,23 +217,40 @@ function SlotBox({
   const styles = useStyles()
   const [hovered, setHovered] = useState(false)
   const ref = useRef<HTMLDivElement | null>(null)
-  /** 自适应缩字号（超长内容用字号适配槽位体积，不砍内容）：
-   *  超限时逐步缩小（下限 70%），到下限仍超才溢出跨页；内容变化时重置。
+  /** 字号微调（v0.22，双向收敛）：内容略少→增大字号填满槽位（上限 125%）；略多→缩小字号（下限 70%）；
+   *  到下限仍装不下才回写 onOverflow 放宽槽位（版面重排）。增长过头会回退一步并锁定，防增/缩来回震荡。
    *  缩放系数经 CSS 变量 --briefy-fit 传递，内容 div 用 calc(字号 * var(--briefy-fit)) 引用 */
   const [fitScale, setFitScale] = useState(1)
-  useEffect(() => setFitScale(1), [slot.content])
-  // 每次渲染后测量（无依赖数组）：内容/字号变化都重测；不超限时不触发 setState，自然收敛
+  const growingRef = useRef(false)
+  const lockedRef = useRef(false)
+  useEffect(() => {
+    setFitScale(1)
+    growingRef.current = false
+    lockedRef.current = false
+  }, [slot.content])
+  // 每次渲染后测量（无依赖数组）：内容/字号变化都重测；达标时不触发 setState，自然收敛
   useLayoutEffect(() => {
     const el = ref.current
     if (!el) return
     const actualMm = pxToMm(el.offsetHeight)
     const limit = slot.estHeight + (slot.overflow ?? 0)
     if (actualMm > limit + 1) {
-      if (fitScale > 0.71) {
-        setFitScale((s) => Math.max(0.7, s * 0.88))
+      if (growingRef.current) {
+        // 增字号尝试过头：回退一步（上一个安全值）并锁定，不再增长
+        growingRef.current = false
+        lockedRef.current = true
+        setFitScale((s) => Math.max(0.7, s / 1.1))
+      } else if (fitScale > 0.71) {
+        setFitScale((s) => Math.max(0.7, s * 0.9))
       } else if (onOverflow) {
         onOverflow(slot.id, Math.ceil(actualMm - limit))
       }
+    } else if (actualMm < limit - 3 && fitScale < 1.24 && !lockedRef.current) {
+      // 留白超过 3mm 才增字号（避免小留白抖动），步进 1.1，上限 125%
+      growingRef.current = true
+      setFitScale((s) => Math.min(1.25, s * 1.1))
+    } else {
+      growingRef.current = false
     }
   })
   return (

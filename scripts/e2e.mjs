@@ -157,8 +157,9 @@ const q = result.quality
 const issues = []
 // 空内容
 for (const s of q) if (s.len === 0) issues.push(`[FAIL] ${s.role}：内容为空`)
-// 字数超限（上限 25% 容差）
-for (const s of q) if (s.len > s.limit * 1.25) issues.push(`[WARN] ${s.role}：字数 ${s.len} 超上限 ${s.limit}（+25% 容差后仍超）`)
+// 字数偏差检查（可接受区间 80%~115%，区间外交给渲染层字号/槽位微调，仅 WARN 不 FAIL）
+for (const s of q) if (s.len > s.limit * 1.15) issues.push(`[WARN] ${s.role}：字数 ${s.len} 超目标 ${s.limit}（超 15%）`)
+for (const s of q) if (s.len < s.limit * 0.8) issues.push(`[WARN] ${s.role}：字数 ${s.len} 不足目标 ${s.limit} 的 80%`)
 // 槽间相似度粗检（两两比对，> 0.35 视为疑似重复）
 for (let i = 0; i < q.length; i++) {
   for (let j = i + 1; j < q.length; j++) {
