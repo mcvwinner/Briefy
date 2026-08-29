@@ -88,3 +88,27 @@ export async function fetchPageText(url: string, maxChars = 4000): Promise<strin
   putCachedPageText(url, result)
   return result
 }
+
+/** 本地文件源读取：按扩展名分发（txt/md/csv/json 直读；pdf 用 pdf-parse；docx 用 mammoth）。
+ *  返回全文不截断——文件源经 AI 的 readSource 工具按需分块读取，而非预先注入。 */
+export async function readLocalSourceText(path: string): Promise<string> {
+  const ext = path.slice(path.lastIndexOf('.')).toLowerCase()
+  if (ext === '.pdf') {
+    // pdf-parse 的入口文件有调试副作用，直接引内部模块规避；该子路径无类型声明
+    // @ts-ignore
+    const pdfParse = (await import('pdf-parse/lib/pdf-parse.js')).default as (b: Buffer) => Promise<{ text: string }>
+    const buf = await import('node:fs/promises').then((fs) => fs.readFile(path))
+    const out = await pdfParse(buf)
+    return out.text.replace(/\r/g, '').trim()
+  }
+  if (ext === '.docx') {
+    const mammoth = await import('mammoth')
+    const out = await mammoth.extractRawText({ path })
+    return out.value.replace(/\r/g, '').trim()
+  }
+  if (['.txt', '.md', '.csv', '.json', '.log'].includes(ext)) {
+    const fs = await import('node:fs/promises')
+    return (await fs.readFile(path, 'utf-8')).trim()
+  }
+  throw new Error(`暂不支持该文件格式（${ext}），支持 txt/md/csv/json/pdf/docx`)
+}

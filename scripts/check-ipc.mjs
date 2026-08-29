@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs'
 const preload = readFileSync('out/preload/index.mjs', 'utf-8')
 const mainFiles = ['src/main/settings.ts', 'src/main/doc.ts', 'src/main/export.ts', 'src/main/user-presets.ts']
 
-const preloadChannels = [...preload.matchAll(/invoke\(\s*"([^"]+)"/g)].map((m) => m[1])
+const preloadChannels = [...preload.matchAll(/invoke\(\s*["']([^"']+)["']/g)].map((m) => m[1])
 
 // 主进程 handle 可能跨行，先拼接全部源码再匹配
 const mainSource = mainFiles.map((f) => readFileSync(f, 'utf-8')).join('\n')

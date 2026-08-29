@@ -85,6 +85,8 @@ declare global {
       ): Promise<{ comments: { index: number; problem: string; instruction: string }[] }>
       onHeartbeat(cb: (generationId: string, delta: string) => void): () => void
       devExportState(): Promise<unknown>
+      /** 选择本地文件作为参考源（返回 null = 用户取消） */
+      pickSourceFile(): Promise<{ path: string; name: string } | null>
       saveDoc(doc: LayoutDoc): Promise<string | null>
       openDoc(): Promise<LayoutDoc | null>
       exportPdf(doc: LayoutDoc, savePath?: string): Promise<string | null>

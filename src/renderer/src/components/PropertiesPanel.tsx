@@ -380,27 +380,38 @@ function SlotSourcesEditor({
     setNewSource({ id: '', name: '', url: '', note: '' })
   }
 
-  // 常用源是否已被本槽位挂载（按 name+url 匹配，内联副本/自建源同源判同）
-  const isMounted = (src: InfoSource): boolean =>
-    slotSources.some((s) => s.name === src.name && s.url === src.url)
+  /** 添加本地文件参考源（系统对话框选文件；生成时 AI 经 readSource 工具按需读取） */
+  const addFileSource = async (): Promise<void> => {
+    const picked = await window.briefy?.pickSourceFile?.()
+    if (!picked) return
+    setSources([
+      ...slotSources,
+      { id: crypto.randomUUID(), name: picked.name, url: '', note: '', kind: 'file', path: picked.path }
+    ])
+  }
+
+  // 常用源是否已被本槽位挂载（同源判定：网页按 name+url，文件按 name+path）
+  const sameSource = (a: InfoSource, b: InfoSource): boolean =>
+    a.name === b.name && (a.kind === 'file' || b.kind === 'file' ? a.path === b.path : a.url === b.url)
+  const isMounted = (src: InfoSource): boolean => slotSources.some((s) => sameSource(s, src))
 
   const toggleCommon = (src: InfoSource, checked: boolean): void => {
     if (checked) {
       setSources([...slotSources, { ...src }])
     } else {
-      setSources(slotSources.filter((s) => !(s.name === src.name && s.url === src.url)))
+      setSources(slotSources.filter((s) => !sameSource(s, src)))
     }
   }
 
-  const collectible = slotSources.filter((s) => !commonSources.some((c) => c.name === s.name && c.url === s.url))
+  const collectible = slotSources.filter((s) => !commonSources.some((c) => sameSource(c, s)))
 
   return (
-    <Field label={`本槽位信息源（${slotSources.length}）—— 生成时抓取内容作事实依据`} className={styles.fieldGap}>
+    <Field label={`本槽位信息源（${slotSources.length}）—— 网页源自动抓取；文件源由 AI 按需读取`} className={styles.fieldGap}>
       {slotSources.map((src, i) => (
         <div key={src.id} className={styles.sourceRow}>
           <div className={styles.sourceInfo}>
-            <div className={styles.sourceName}>{src.name}</div>
-            <div className={styles.sourceUrl}>{src.url}</div>
+            <div className={styles.sourceName}>{src.kind === 'file' ? '📄 ' : ''}{src.name}</div>
+            <div className={styles.sourceUrl}>{src.kind === 'file' ? src.path : src.url}</div>
           </div>
           <Button
             icon={<DeleteRegular />}
@@ -434,6 +445,9 @@ function SlotSourcesEditor({
         />
         <Button size="small" appearance="primary" disabled={!newSource.name.trim() || !newSource.url.trim()} onClick={addInline}>
           添加源
+        </Button>
+        <Button size="small" onClick={() => void addFileSource()}>
+          添加文件源
         </Button>
       </div>
 

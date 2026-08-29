@@ -4,8 +4,9 @@ import { join } from 'node:path'
 import { DEFAULT_SETTINGS, type AiSettings, type InfoSource, type ThemeMode } from '../shared/settings'
 import { generateSlotContent, planIssue, reviewIssue, resolveImageQueries } from './ai'
 import type { DocContext } from './ai'
-import { fetchPageText } from './tools'
+import { fetchPageText, readLocalSourceText } from './tools'
 import type { ToolId } from '../shared/layout'
+import { dialog } from 'electron'
 
 const SETTINGS_FILE = 'settings.json'
 
@@ -92,9 +93,24 @@ export function registerSettingsIpc(): void {
       const controller = new AbortController()
       activeGenerations.set(generationId, controller)
       try {
-        // 抓取该槽位内联挂载的信息源（带当日缓存，同源多槽只抓一次；失败标注原因不阻塞）
+        // 抓取该槽位内联挂载的信息源（带当日缓存，同源多槽只抓一次；失败标注原因不阻塞）。
+        // 文件源（kind === 'file'）不预注入：读全文后经 readSource 工具由 AI 按需分块读取（限次）
         const sourceContents: { name: string; note: string; text: string }[] = []
+        const fileSources: { name: string; note: string; text: string }[] = []
         for (const src of sources ?? []) {
+          if (src?.kind === 'file') {
+            if (!src.path) continue
+            try {
+              fileSources.push({ name: src.name, note: src.note, text: await readLocalSourceText(src.path) })
+            } catch (err) {
+              sourceContents.push({
+                name: src.name,
+                note: src.note,
+                text: `（此文件源读取失败：${err instanceof Error ? err.message : String(err)}）`
+              })
+            }
+            continue
+          }
           if (!src?.url) continue
           try {
             sourceContents.push({ name: src.name, note: src.note, text: await fetchPageText(src.url) })
@@ -115,7 +131,8 @@ export function registerSettingsIpc(): void {
           sourceContents,
           controller.signal,
           estHeight,
-          (delta) => _event.sender.send('ai:heartbeat', generationId, delta)
+          (delta) => _event.sender.send('ai:heartbeat', generationId, delta),
+          fileSources
         )
         // 配图闭环（ROADMAP Q3）：AI 给意图，系统用 Tavily 图搜回填真实 URL（失败不影响正文）
         const content = await resolveImageQueries(generated.content, settings.tavilyKey)
@@ -131,10 +148,35 @@ export function registerSettingsIpc(): void {
     return true
   })
 
-  /** 编辑部阶段共用的源摘要抓取（带当日缓存；失败标原因） */
+  // 选择本地文件作为参考源（渲染层不直接访问文件系统）
+  ipcMain.handle('sources:pick-file', async () => {
+    const win = BrowserWindow.getAllWindows()[0]
+    const res = await dialog.showOpenDialog(win, {
+      title: '选择参考文件',
+      properties: ['openFile'],
+      filters: [
+        { name: '参考文档', extensions: ['txt', 'md', 'csv', 'json', 'log', 'pdf', 'docx'] },
+        { name: '所有文件', extensions: ['*'] }
+      ]
+    })
+    if (res.canceled || res.filePaths.length === 0) return null
+    const p = res.filePaths[0]
+    return { path: p, name: p.slice(Math.max(p.lastIndexOf('\\'), p.lastIndexOf('/')) + 1) }
+  })
+
+  /** 编辑部阶段共用的源摘要抓取（带当日缓存；失败标原因）。文件源读前 4000 字作摘要（选题只需概览） */
   const gatherSourceDigests = async (sources: InfoSource[]) => {
     const digests: { name: string; text: string }[] = []
     for (const src of sources ?? []) {
+      if (src?.kind === 'file') {
+        if (!src.path) continue
+        try {
+          digests.push({ name: src.name, text: (await readLocalSourceText(src.path)).slice(0, 4000) })
+        } catch (err) {
+          digests.push({ name: src.name, text: `（此文件源读取失败：${err instanceof Error ? err.message : String(err)}）` })
+        }
+        continue
+      }
       if (!src?.url) continue
       try {
         digests.push({ name: src.name, text: await fetchPageText(src.url) })

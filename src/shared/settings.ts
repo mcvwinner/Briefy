@@ -1,4 +1,4 @@
-/** 信息源定义：生成时主进程抓取其内容注入对应槽位提示词。
+/** 信息源定义：生成时主进程抓取/读取其内容注入对应槽位提示词。
  *  源是槽位属性（随 .briefy/预设保存）；settings 里这份是"常用信息源"收藏夹，供槽位快速导入复用 */
 export interface InfoSource {
   id: string
@@ -6,6 +6,10 @@ export interface InfoSource {
   url: string
   /** 给 AI 的说明：这个源是什么、关注什么 */
   note: string
+  /** 源类型：web = 网页（url 抓取）；file = 本地文件（path 读取，AI 经 readSource 工具按需分块读取）。缺省 web 兼容旧数据 */
+  kind?: 'web' | 'file'
+  /** 本地文件绝对路径（kind === 'file' 时有效） */
+  path?: string
 }
 
 /**

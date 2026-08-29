@@ -21,7 +21,14 @@ interface LocalTool {
 /** 按槽位配置动态组装工具集。
  * 时间不在提示词里硬编码，而是作为工具提供——需要时 AI 自己查询。
  */
-function buildTools(settings: AiSettings, enabled: ToolId[]) {
+/** 文件参考源（已读取的全文），供 readSource 工具分块按需读取 */
+export interface FileSourceContent {
+  name: string
+  note: string
+  text: string
+}
+
+function buildTools(settings: AiSettings, enabled: ToolId[], fileSources: FileSourceContent[] = []) {
   const tools: Record<string, LocalTool> = {}
 
   if (enabled.includes('getCurrentTime')) {
@@ -63,6 +70,40 @@ function buildTools(settings: AiSettings, enabled: ToolId[]) {
       execute: async (args) => {
         const { url } = args as { url: string }
         return fetchPageText(url)
+      }
+    }
+  }
+
+  // 文件参考源（v0.25）：不预注入，AI 经 readSource 工具按需分块读取；每源限 3 次，促使一次读全、珍惜上下文
+  if (fileSources.length > 0) {
+    const CHUNK = 4000
+    const MAX_READS = 3
+    const blocks = new Map<string, { chunks: string[]; total: number; reads: number }>()
+    for (const f of fileSources) {
+      const chunks: string[] = []
+      for (let i = 0; i < f.text.length; i += CHUNK) chunks.push(f.text.slice(i, i + CHUNK))
+      blocks.set(f.name, { chunks, total: Math.max(1, chunks.length), reads: 0 })
+    }
+    const listDesc = [...blocks.entries()].map(([n, b]) => `「${n}」共 ${b.total} 块${b.total > 1 ? '（建议按 1→2→3 顺序读）' : ''}`).join('、')
+    tools.readSource = {
+      description: `读取本地参考文件的一段内容（每次约 4000 字）。可用文件源：${listDesc}。每个文件最多读取 ${MAX_READS} 次，请珍惜次数：先读第 1 块判断价值，再决定是否继续。`,
+      inputSchema: z.object({
+        source: z.string().describe('文件源名称'),
+        part: z.number().int().min(1).describe('第几块（从 1 开始）')
+      }),
+      execute: async (args) => {
+        const { source, part } = args as { source: string; part: number }
+        const b = blocks.get(source)
+        if (!b) return { error: `未找到文件源「${source}」`, available: [...blocks.keys()] }
+        if (b.reads >= MAX_READS) return { error: `该文件的读取次数已用完（${MAX_READS} 次），请基于已读内容写作，不要再次读取` }
+        b.reads += 1
+        const idx = Math.min(Math.max(1, part), b.total) - 1
+        return {
+          part: idx + 1,
+          totalParts: b.total,
+          remainingReads: MAX_READS - b.reads,
+          text: b.chunks[idx]
+        }
       }
     }
   }
@@ -191,7 +232,8 @@ export async function generateSlotContent(
   sourceContents: { name: string; note: string; text: string }[] = [],
   signal?: AbortSignal,
   estHeight = 45,
-  onTick?: (delta: string) => void
+  onTick?: (delta: string) => void,
+  fileSources: FileSourceContent[] = []
 ): Promise<GenerateResult> {
   if (!settings.apiKey) throw new Error('未配置 API Key')
   if (!settings.model) throw new Error('未配置模型名')
@@ -199,7 +241,7 @@ export async function generateSlotContent(
   // 手动实现工具调用循环（对各家 OpenAI 兼容端点兼容性最稳）：
   const url = (settings.baseUrl || 'https://api.openai.com/v1').replace(/\/+$/, '') + '/chat/completions'
   const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${settings.apiKey}` }
-  const toolDefs = buildTools(settings, enabledTools)
+  const toolDefs = buildTools(settings, enabledTools, fileSources)
   const openaiTools = Object.entries(toolDefs).map(([name, t]) => ({
     type: 'function' as const,
     function: {

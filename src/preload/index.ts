@@ -68,7 +68,10 @@ const api = {
   renameUserPreset: (oldName: string, newName: string): Promise<boolean> =>
     ipcRenderer.invoke('user-preset:rename', oldName, newName),
   exportUserPreset: (name: string): Promise<string | null> => ipcRenderer.invoke('user-preset:export', name),
-  importUserPreset: (): Promise<UserPreset | null> => ipcRenderer.invoke('user-preset:import')
+  importUserPreset: (): Promise<UserPreset | null> => ipcRenderer.invoke('user-preset:import'),
+  /** 选择本地文件作为参考源（返回 null = 用户取消） */
+  pickSourceFile: (): Promise<{ path: string; name: string } | null> =>
+    ipcRenderer.invoke('sources:pick-file')
 }
 
 export type BriefyApi = typeof api

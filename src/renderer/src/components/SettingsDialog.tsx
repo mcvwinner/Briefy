@@ -171,7 +171,8 @@ function SettingsDialog({ open, settings, onClose, onSaved }: SettingsDialogProp
       model: model.trim(),
       theme: settings?.theme ?? 'light',
       tavilyKey: tavilyKey.trim(),
-      sources: sources.filter((s) => s.name.trim() && s.url.trim()),
+      // 网页源需 name+url；文件源需 name+path（url 为空不算缺失）
+      sources: sources.filter((s) => s.name.trim() && (s.kind === 'file' ? !!s.path : !!s.url.trim())),
       layout,
       stylePrompt: stylePrompt.trim() || undefined,
       roleDuties: Object.keys(roleDuties).length > 0 ? roleDuties : undefined,
@@ -483,29 +484,50 @@ function SettingsDialog({ open, settings, onClose, onSaved }: SettingsDialogProp
                 onChange={(_, data) => setTavilyKey(data.value)}
               />
             </Field>
-            <Field label={`常用信息源（${sources.length}）—— 收藏夹；在槽位属性面板中导入到具体槽位，生成时 AI 抓取源内容作为事实依据`}>
+            <Field label={`常用信息源（${sources.length}）—— 收藏夹；在槽位属性面板中导入到具体槽位。网页源自动抓取；文件源由 AI 经 readSource 工具按需读取（每文件限 3 次）`}>
               <div className={styles.sourceList}>
                 {sources.map((src, i) => (
                   <div key={src.id} className={styles.sourceItem}>
                     <div className={styles.sourceRow}>
-                      <Input
-                        className={styles.sourceInput}
-                        size="small"
-                        placeholder="名称（如：C++ 安全周报）"
-                        value={src.name}
-                        onChange={(_, d) =>
-                          setSources(sources.map((s, j) => (j === i ? { ...s, name: d.value } : s)))
-                        }
-                      />
-                      <Input
-                        className={styles.sourceInput}
-                        size="small"
-                        placeholder="https://网址"
-                        value={src.url}
-                        onChange={(_, d) =>
-                          setSources(sources.map((s, j) => (j === i ? { ...s, url: d.value } : s)))
-                        }
-                      />
+                      {src.kind === 'file' ? (
+                        <>
+                          <Input
+                            className={styles.sourceInput}
+                            size="small"
+                            value={src.name}
+                            onChange={(_, d) =>
+                              setSources(sources.map((s, j) => (j === i ? { ...s, name: d.value } : s)))
+                            }
+                          />
+                          <Input
+                            className={styles.sourceInput}
+                            size="small"
+                            value={src.path ?? ''}
+                            readOnly
+                          />
+                        </>
+                      ) : (
+                        <>
+                          <Input
+                            className={styles.sourceInput}
+                            size="small"
+                            placeholder="名称（如：C++ 安全周报）"
+                            value={src.name}
+                            onChange={(_, d) =>
+                              setSources(sources.map((s, j) => (j === i ? { ...s, name: d.value } : s)))
+                            }
+                          />
+                          <Input
+                            className={styles.sourceInput}
+                            size="small"
+                            placeholder="https://网址"
+                            value={src.url}
+                            onChange={(_, d) =>
+                              setSources(sources.map((s, j) => (j === i ? { ...s, url: d.value } : s)))
+                            }
+                          />
+                        </>
+                      )}
                       <Button
                         icon={<DeleteRegular />}
                         size="small"
@@ -524,18 +546,34 @@ function SettingsDialog({ open, settings, onClose, onSaved }: SettingsDialogProp
                     />
                   </div>
                 ))}
-                <Button
-                  size="small"
-                  appearance="subtle"
-                  onClick={() =>
-                    setSources([
-                      ...sources,
-                      { id: crypto.randomUUID(), name: '', url: '', note: '' }
-                    ])
-                  }
-                >
-                  + 添加信息源
-                </Button>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <Button
+                    size="small"
+                    appearance="subtle"
+                    onClick={() =>
+                      setSources([
+                        ...sources,
+                        { id: crypto.randomUUID(), name: '', url: '', note: '' }
+                      ])
+                    }
+                  >
+                    + 添加信息源
+                  </Button>
+                  <Button
+                    size="small"
+                    appearance="subtle"
+                    onClick={async () => {
+                      const picked = await window.briefy?.pickSourceFile?.()
+                      if (!picked) return
+                      setSources([
+                        ...sources,
+                        { id: crypto.randomUUID(), name: picked.name, url: '', note: '', kind: 'file', path: picked.path }
+                      ])
+                    }}
+                  >
+                    + 添加文件源
+                  </Button>
+                </div>
               </div>
             </Field>
           </>

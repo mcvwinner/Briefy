@@ -2,6 +2,15 @@
 
 本项目的所有显著变更记录于此。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [0.25.0] - 2026-08-29
+
+### 新增（用户需求：添加本地文件为参考源——对普通生成与后续订阅模式都可用）
+
+- **文件参考源**：信息源新增 `kind: 'file'` 类型，支持 txt/md/csv/json/log/pdf/docx 七种格式（新增依赖 pdf-parse + mammoth）；设置页常用源与槽位属性面板均有「添加文件源」入口（系统对话框选文件，渲染层不碰文件系统）；
+- **readSource 按需读取**（用户设计：不限死注入量，给 AI 读工具限次数）：文件源不预注入——AI 经 readSource 工具按需分块读取（约 4000 字/块），每个文件限 3 次，读到的内容要求充分利用；省 token 且大文件也能用；
+- **实现要点**：主进程 tools.ts 新增 readLocalSourceText（pdf-parse 规避入口调试副作用直引内部模块；mammoth extractRawText）；编辑部选题摘要用文件源前 4000 字；
+- 实测：AI 精确引用测试文件中的独特事实（项目代号/格式数量/读取限制），readSource 链路端到端生效（探针 probe-filesource.mjs）。
+
 ## [0.24.3] - 2026-08-29
 
 ### 修复（用户反馈：大面积重写与超额是估算的问题）
