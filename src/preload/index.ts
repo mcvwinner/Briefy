@@ -49,6 +49,13 @@ const api = {
     overrides?: Partial<AiSettings>
   ): Promise<{ comments: { index: number; problem: string; instruction: string }[] }> =>
     ipcRenderer.invoke('ai:review-issue', generationId, articles, overrides),
+  /** 订阅出刊归档：AI 提炼本期记忆摘要 */
+  summarizeIssue: (
+    generationId: string,
+    articles: { role: string; content: string }[],
+    overrides?: Partial<AiSettings>
+  ): Promise<{ headline: string; points: string[] }> =>
+    ipcRenderer.invoke('ai:summarize-issue', generationId, articles, overrides),
   /** 生成过程心跳（AI 流式输出增量，ROADMAP Q2 反馈）；返回去注册函数 */
   onHeartbeat: (cb: (generationId: string, delta: string) => void): (() => void) => {
     const listener = (_event: IpcRendererEvent, id: string, delta: string): void => cb(id, delta)

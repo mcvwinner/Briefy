@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, nativeTheme } from 'electron'
 import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { DEFAULT_SETTINGS, type AiSettings, type InfoSource, type ThemeMode } from '../shared/settings'
-import { generateSlotContent, planIssue, reviewIssue, resolveImageQueries } from './ai'
+import { generateSlotContent, planIssue, reviewIssue, resolveImageQueries, summarizeIssue } from './ai'
 import type { DocContext } from './ai'
 import { fetchPageText, readLocalSourceText } from './tools'
 import type { ToolId } from '../shared/layout'
@@ -231,6 +231,28 @@ export function registerSettingsIpc(): void {
       activeGenerations.set(generationId, controller)
       try {
         return await reviewIssue(settings, articles ?? [], controller.signal, (delta) =>
+          _event.sender.send('ai:heartbeat', generationId, delta)
+        )
+      } finally {
+        activeGenerations.delete(generationId)
+      }
+    }
+  )
+
+  /** 订阅出刊归档：AI 提炼本期记忆摘要（失败由调用方降级为截断摘要） */
+  ipcMain.handle(
+    'ai:summarize-issue',
+    async (
+      _event,
+      generationId: string,
+      articles: { role: string; content: string }[],
+      overrides?: Partial<AiSettings>
+    ) => {
+      const settings = readSettingsWith(await readSettings(), overrides)
+      const controller = new AbortController()
+      activeGenerations.set(generationId, controller)
+      try {
+        return await summarizeIssue(settings, articles ?? [], controller.signal, (delta) =>
           _event.sender.send('ai:heartbeat', generationId, delta)
         )
       } finally {

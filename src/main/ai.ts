@@ -637,3 +637,38 @@ export async function reviewIssue(
   const parsed = REVIEW_SCHEMA.parse(extractJson(raw))
   return parsed.comments
 }
+
+/** 摘要结构（宽容解析） */
+const SUMMARY_SCHEMA = z.object({
+  headline: z.string(),
+  points: z.array(z.string())
+})
+
+/**
+ * 出刊归档：AI 把本期各栏内容提炼成记忆摘要（下期防重复 + 连载承接的关键事实载体）。
+ * 保留关键事实（数字/名称/事件/进度），去掉修饰与评论；points 须覆盖全部栏目。
+ * 失败抛异常，由调用方降级为零成本截断摘要。
+ */
+export async function summarizeIssue(
+  settings: AiSettings,
+  articles: { role: string; content: string }[],
+  signal?: AbortSignal,
+  onTick?: (delta: string) => void
+): Promise<{ headline: string; points: string[] }> {
+  const messages = [
+    {
+      role: 'system' as const,
+      content: [
+        '你是一家个性化报纸的档案员，负责把每期内容提炼成供下期使用的记忆摘要（用途：避免重复报道、支持连载延续）。',
+        '规则：headline 给一句本期头条；points 为每栏一条 1~2 句的要点（保留关键事实：数字、名称、事件、进展），不要修饰语与评论。',
+        '只输出 JSON，格式：{"headline":"本期头条","points":["栏目：要点", ...]}。points 必须覆盖全部栏目，顺序与输入一致。'
+      ].join('\n')
+    },
+    {
+      role: 'user' as const,
+      content: ['本期全部栏目：', ...articles.map((a) => `[${a.role}]\n${a.content.slice(0, 1200)}`)].join('\n\n')
+    }
+  ]
+  const raw = await chatOnce(settings, messages, signal, settings.editorial?.reviewModel, onTick)
+  return SUMMARY_SCHEMA.parse(extractJson(raw))
+}

@@ -89,6 +89,11 @@ declare global {
         articles: { index: number; role: string; content: string }[],
         overrides?: Partial<AiSettings>
       ): Promise<{ comments: { index: number; problem: string; instruction: string }[] }>
+      summarizeIssue(
+        generationId: string,
+        articles: { role: string; content: string }[],
+        overrides?: Partial<AiSettings>
+      ): Promise<{ headline: string; points: string[] }>
       onHeartbeat(cb: (generationId: string, delta: string) => void): () => void
       devExportState(): Promise<unknown>
       /** 选择本地文件作为参考源（返回 null = 用户取消） */
@@ -644,22 +649,35 @@ function App(): React.JSX.Element {
           repaired++
         }
       }
-      // PDF 归档 + 记忆写回
+      // PDF 归档 + 记忆写回（摘要优先 AI 提炼：保留关键事实供下期防重复/连载；失败降级为零成本截断）
       const pdfPath = await window.briefy.issuePath(sub.id, stamp)
       await window.briefy.exportPdf(layout.docRef.current, pdfPath)
-      const summary = buildIssueSummary(layout.docRef.current, issuedAt)
-      const memory = rollMemory(sub.memory, summary)
-      const slots = layout.docRef.current.pages
+      const slotsForMemory = layout.docRef.current.pages
         .flatMap((p) => p.slots)
         .filter((s) => s.status === 'done' && s.content?.trim())
         .map((s) => ({ role: resolveRoleName(s, sub.template.customRoles), content: s.content ?? '' }))
+      let summary
+      try {
+        const sumId = crypto.randomUUID()
+        inFlightRef.current.add(sumId)
+        try {
+          const refined = await window.briefy.summarizeIssue(sumId, slotsForMemory, overrides)
+          summary = { issuedAt, headline: refined.headline, points: refined.points }
+        } finally {
+          void window.briefy.cancelGeneration(sumId)
+          inFlightRef.current.delete(sumId)
+        }
+      } catch {
+        summary = buildIssueSummary(layout.docRef.current, issuedAt)
+      }
+      const memory = rollMemory(sub.memory, summary)
       const record = {
         id: crypto.randomUUID(),
         issuedAt,
         pdfPath,
         quality: { passed: problems.length === 0, issues: problems.map((p) => `${p.role}：${p.msg}`), repaired },
         summary,
-        slots
+        slots: slotsForMemory
       }
       // 重新生成指定期：替换旧记录（PDF 同路径覆盖）；否则追加新期
       const issues = stamp
