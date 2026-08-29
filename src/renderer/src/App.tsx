@@ -347,7 +347,7 @@ function App(): React.JSX.Element {
   /** 并发生成所有槽位（并发上限 3），逐槽回填；附带文档大纲供 AI 语篇决策 */
   const [generating, setGenerating] = useState(false)
   /** 编辑部阶段（ROADMAP Q2）：null = 非编辑部模式或未到阶段 */
-  const [phase, setPhase] = useState<'选题中…' | '写作中…' | '审稿中…' | null>(null)
+  const [phase, setPhase] = useState<'选题中…' | '写作中…' | '审稿中…' | '生成接续栏目…' | '生成子栏目…' | null>(null)
   /** 质量报告卡（ROADMAP 反馈：让改进可见） */
   const [qualityReport, setQualityReport] = useState<{
     rows: { role: string; status: string; len: number; limit: number; ok: boolean | null; hasSource: boolean; rewrites: number; fit?: number }[]
@@ -456,10 +456,11 @@ function App(): React.JSX.Element {
       const wordLimit = Math.max(40, Math.round(slot.estHeight * 4.5))
       const quota = content ? estimateQuota(content) : 0
       const ratio = content ? quota / wordLimit : 1
-      // 纯控件槽位（正文为 0，如 notice 只写 :::info、stats 只写 :::stat）是合法形态，不退稿
-      const pureWidget = (content?.includes(':::') ?? false) && countContentChars(content ?? '') === 0
+      // 纯控件槽位（正文为 0）与自由创作槽（不限字数格式）是合法形态，不退稿
+      const pureWidget =
+        (content?.includes(':::') ?? false) && countContentChars(content ?? '') === 0
       let retried = false
-      if (content && !pureWidget && (ratio > 2 || ratio < 0.4)) {
+      if (content && slot.role !== 'free' && !pureWidget && (ratio > 2 || ratio < 0.4)) {
         retried = true // 只要发起过退稿重写就记录（质量报告展示「重试了」）
         const tooLong = ratio > 1.15
         try {
@@ -568,6 +569,12 @@ function App(): React.JSX.Element {
     for (const page of doc.pages) {
       for (const s of page.slots) {
         const role = resolveRoleName(s)
+        // 自由创作槽：只要有输出就算过（不限字数/格式/控件）
+        if (s.role === 'free') {
+          if (s.status !== 'done') problems.push({ slotId: s.id, role, msg: '未生成成功' })
+          else if (!s.content?.trim()) problems.push({ slotId: s.id, role, msg: '内容为空' })
+          continue
+        }
         if (s.status !== 'done') {
           problems.push({ slotId: s.id, role, msg: '未生成成功' })
           continue
@@ -690,6 +697,70 @@ function App(): React.JSX.Element {
     }
   }
 
+  /** 接续槽位组：合并组内提示词为一次 AI 调用（组内总容量定字数），输出按 ═══PART═══ 拆分依序回填各槽。
+   *  拆分数不足时多余槽位空置；失败组内全部标 error。不走退稿/审稿（拆分语义与按槽重写冲突）。 */
+  const runGroupTask = async (
+    group: { pageId: string; slot: Slot; index: number }[],
+    docContext: { title: string; outline: { position: string; prompt: string }[] },
+    overrides?: Partial<AiSettings>
+  ): Promise<void> => {
+    if (!window.briefy || group.length === 0) return
+    const SEP = '═══PART═══'
+    const totalEst = group.reduce((acc, g) => acc + g.slot.estHeight, 0)
+    const partsDesc = group.map((g, i) => `第 ${i + 1} 部分（用于「${resolveRoleName(g.slot)}」栏）：${g.slot.prompt}`).join('\n')
+    const prompt = [
+      `以下需求原本拆分在 ${group.length} 个相邻版面栏位，请作为一篇连贯内容一次写完，再用分隔符切分。`,
+      '写作规则：',
+      `- 全文用单独一行 ${SEP} 作为分隔标记，恰好分成 ${group.length} 个部分，不多不少；`,
+      `- 各部分合计约 ${Math.round(totalEst * 4.5)} 字；各部分之间承接自然，但每部分可独立成段阅读；`,
+      '- 内容分配：',
+      partsDesc
+    ].join('\n')
+    for (const g of group) layout.updateSlot(g.slot.id, { status: 'generating' })
+    const generationId = crypto.randomUUID()
+    inFlightRef.current.add(generationId)
+    try {
+      const result = await Promise.race([
+        window.briefy!.generateSlot(
+          generationId,
+          prompt,
+          resolveRoleName(group[0].slot),
+          group[0].slot.kind,
+          group[0].slot.tools ?? ['getCurrentTime'],
+          docContext,
+          group[0].index,
+          group[0].slot.sources ?? [],
+          totalEst,
+          overrides
+        ),
+        new Promise<never>((_, rej) => setTimeout(() => rej(new Error('接续组生成超时（240s）')), 240_000))
+      ])
+      const parts = result.content
+        .split(new RegExp(`^\\s*${SEP}\\s*$`, 'm'))
+        .map((p) => p.trim())
+        .filter(Boolean)
+      group.forEach((g, i) => {
+        const content = parts[i] ?? ''
+        if (result.usage) {
+          const w = window as unknown as { __briefyUsage?: { promptTokens: number; completionTokens: number; totalTokens: number } }
+          const prev = w.__briefyUsage ?? { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
+          w.__briefyUsage = {
+            promptTokens: prev.promptTokens + result.usage.promptTokens,
+            completionTokens: prev.completionTokens + result.usage.completionTokens,
+            totalTokens: prev.totalTokens + result.usage.totalTokens
+          }
+        }
+        layout.updateSlot(g.slot.id, { content: content || `（第 ${i + 1} 部分缺失：AI 返回段数不足）`, status: content ? 'done' : 'empty' })
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      for (const g of group) layout.updateSlot(g.slot.id, { content: message, status: 'error' })
+    } finally {
+      void window.briefy?.cancelGeneration(generationId)
+      inFlightRef.current.delete(generationId)
+    }
+  }
+
   const generateOne = async (slot: Slot, index: number, overrides?: Partial<AiSettings>): Promise<void> => {
     if (!window.briefy || generating) return
     setGenerating(true)
@@ -726,12 +797,23 @@ function App(): React.JSX.Element {
     setGenerating(true)
     try {
       const docNow = layout.docRef.current
+      // 任务规划（v0.29 关联槽位）：接续组 → 一次调用拆分；子槽位 → 父完成后第二波；其余单槽并行
+      const continuationGroups = new Map<string, { pageId: string; slot: Slot; index: number }[]>()
+      const childTasks: { pageId: string; slot: Slot; index: number }[] = []
       const tasks: { pageId: string; slot: Slot; index: number }[] = []
       let index = 0
       for (const page of docNow.pages) {
         for (const slot of page.slots) {
           if (!slot.prompt.trim()) continue // 无提示词的槽位跳过
-          tasks.push({ pageId: page.id, slot, index })
+          if (slot.relation?.type === 'continuation') {
+            const arr = continuationGroups.get(slot.relation.group) ?? []
+            arr.push({ pageId: page.id, slot, index })
+            continuationGroups.set(slot.relation.group, arr)
+          } else if (slot.relation?.type === 'child') {
+            childTasks.push({ pageId: page.id, slot, index })
+          } else {
+            tasks.push({ pageId: page.id, slot, index })
+          }
           index++
         }
       }
@@ -748,7 +830,10 @@ function App(): React.JSX.Element {
       }
 
       // ---- 编辑部模式（ROADMAP Q2）：选题 → 写作 → 审稿；任一环节失败自动降级为旧流程 ----
-      const editorial = overrides?.editorial?.enabled ?? settingsRef.current?.editorial?.enabled === true
+      // 存在关联槽位（接续组/子槽位）时本次不走三段式：选题单与审稿的按槽模型与合并/依赖语义冲突
+      const hasRelations = continuationGroups.size > 0 || childTasks.length > 0
+      const editorial =
+        !hasRelations && (overrides?.editorial?.enabled ?? settingsRef.current?.editorial?.enabled === true)
       /** 选题单：index → 附加指令 */
       const assignmentMap = new Map<number, string>()
 
@@ -790,6 +875,33 @@ function App(): React.JSX.Element {
         }
       }
       await Promise.all(Array.from({ length: Math.min(CONCURRENCY, tasks.length) }, worker))
+      if (cancelRef.current) return
+
+      // ---- 接续槽位组：每组一次 AI 调用，输出按分隔符拆分回填（v0.29）----
+      if (continuationGroups.size > 0) {
+        setPhase('生成接续栏目…')
+        for (const [, group] of continuationGroups) {
+          if (cancelRef.current) break
+          await runGroupTask(group, docContext, overrides)
+        }
+      }
+
+      // ---- 子槽位第二波：父槽已完成，注入父槽产出全文与之衔接（v0.29）----
+      if (childTasks.length > 0 && !cancelRef.current) {
+        setPhase('生成子栏目…')
+        const docAfter = layout.docRef.current
+        const all = docAfter.pages.flatMap((p) => p.slots)
+        for (const t of childTasks) {
+          if (cancelRef.current) break
+          const parentId = t.slot.relation?.type === 'child' ? t.slot.relation.parentId : null
+          const parent = parentId ? all.find((s) => s.id === parentId) : null
+          const parentContent = parent?.status === 'done' ? parent.content ?? '' : ''
+          const extra = parentContent
+            ? `【父栏目「${resolveRoleName(parent!)}」已生成内容】\n${parentContent}\n\n请作为其子栏目与之衔接：承接话题、展开细节或提供补充视角，不要重复父栏目已述内容。`
+            : ''
+          await runSlotTask(t.slot, t.index, docContext, extra, overrides)
+        }
+      }
       if (cancelRef.current) return
 
       // ---- 审稿：一次自检调用；意见**自动执行重写**（ROADMAP 反馈：审稿要有牙齿），失败静默忽略 ----
@@ -1235,6 +1347,11 @@ function App(): React.JSX.Element {
             slot={layout.selection?.slot ?? null}
             commonSources={settings?.sources ?? []}
             customRoles={settings?.customRoles ?? []}
+            parentOptions={layout.doc.pages.flatMap((p, pi) =>
+              p.slots
+                .filter((s) => s.id !== layout.selectedSlotId && !(s.relation?.type === 'child'))
+                .map((s) => ({ id: s.id, label: `第${pi + 1}页 · ${resolveRoleName(s, settings?.customRoles)}${s.prompt ? `（${s.prompt.slice(0, 16)}…）` : ''}` }))
+            )}
             onAddCommonSources={(srcs) => {
               if (!settings) return
               // 去重合并进常用源库并持久化（按 name+url 判重）

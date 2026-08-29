@@ -5,8 +5,8 @@ import type { AiSettings, CustomRole, InfoSource } from './settings'
  * 版面 = 槽位声明表；槽位有角色职责，高度自适应，AI 按角色领任务。
  */
 
-/** 区块槽位角色：AI 按角色理解职责 */
-export type SlotRole = 'headline' | 'body' | 'stats' | 'briefs' | 'notice' | 'custom'
+/** 槽位角色：AI 按角色理解职责；free = 自由创作（不限字数/格式/控件，审查放行） */
+export type SlotRole = 'headline' | 'body' | 'stats' | 'briefs' | 'notice' | 'custom' | 'free'
 
 /** 各角色的职责描述（喂给 AI 的单一事实源） */
 export const ROLE_DEFS: Record<SlotRole, { name: string; duty: string }> = {
@@ -15,6 +15,11 @@ export const ROLE_DEFS: Record<SlotRole, { name: string; duty: string }> = {
   stats: { name: '数据', duty: '数据窗口：优先用 :::stat 统计卡呈现 2-3 个关键数字，少写散文。' },
   briefs: { name: '快讯', duty: '快讯栏：每条一句话，用 **日期/主体** 开头，短促密集。' },
   notice: { name: '提示框', duty: '整格提示/声明：适合 :::info 控件，语气单一明确。' },
+  free: {
+    name: '自由创作',
+    duty:
+      '自由创作：这是你完全自由的一格。可以随笔/评论/编者按/任何你认为有价值的形式，字数不限，可自由组合文字与任意控件。唯一要求：内容本身要值得读。'
+  },
   custom: { name: '自定义', duty: '' }
 }
 
@@ -51,6 +56,10 @@ export interface Slot {
   overflow?: number
   /** 退稿重写次数（长度协调触发；质量报告展示） */
   rewriteCount?: number
+  /** 槽位关联（v0.29）：
+   *  child = 子槽位（生成顺序在父槽位之后，AI 知道父槽位产出，与之衔接；两次 AI 调用）；
+   *  continuation = 接续槽位组（同组槽位合并为一次 AI 调用，输出按 ═══PART═══ 分隔拆分回填各槽） */
+  relation?: { type: 'child'; parentId: string } | { type: 'continuation'; group: string }
 }
 
 /** 一页 A4：槽位声明表 */
@@ -160,7 +169,8 @@ export const DEFAULT_SLOT_HEIGHT: Record<SlotRole, number> = {
   stats: 35,
   briefs: 60,
   notice: 25,
-  custom: 45
+  custom: 45,
+  free: 60
 }
 
 /**

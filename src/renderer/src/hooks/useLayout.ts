@@ -52,6 +52,8 @@ export function useLayout(prefs?: LayoutPrefs) {
       const slot = createSlot(role, region, DEFAULT_SLOT_HEIGHT[role])
       if (prompt) slot.prompt = prompt
       if (customRoleName) slot.customRoleName = customRoleName
+      // 自由创作槽：默认提供全部工具（不限格式，AI 自主决定是否使用）
+      if (role === 'free') slot.tools = ['getCurrentTime', 'webSearch', 'fetchPage']
       // 单次 setDoc：摊平重排（贪心装满，避免碎片空白页）；手动模式直接追加，位置由用户拖拽调整
       if (doc.layoutMode === 'manual') {
         updatePage(pageId, (page) => ({ ...page, slots: [...page.slots, slot] }))

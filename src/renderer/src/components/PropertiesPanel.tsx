@@ -142,6 +142,8 @@ interface PropertiesPanelProps {
   customRoles: CustomRole[]
   /** 仅生成此槽位 */
   onGenerateSlot?: (slot: Slot) => void
+  /** 全文档其他槽位（子槽位选父用；排除自身） */
+  parentOptions: { id: string; label: string }[]
   onChange: (patch: Partial<Slot>) => void
   onSetWidth: (widthMode: 'full' | 'half-left' | 'half-right' | 'sidebar') => void
   onRemove: () => void
@@ -154,6 +156,7 @@ function PropertiesPanel({
   customRoles,
   onAddCommonSources,
   onGenerateSlot,
+  parentOptions,
   onChange,
   onSetWidth,
   onRemove
@@ -179,6 +182,7 @@ function PropertiesPanel({
           ? 'half-left'
           : 'half-right'
         : 'sidebar'
+  const rel = slot.relation
 
   return (
     <aside className={styles.panel}>
@@ -319,6 +323,7 @@ function PropertiesPanel({
         className={styles.fieldGap}
       >
         {TOOL_OPTIONS.map(({ id, label, hint }) => (
+
           <Checkbox
             key={id}
             label={hint ? `${label}（${hint}）` : label}
@@ -333,6 +338,62 @@ function PropertiesPanel({
       </Field>
 
       <WidgetEditor slot={slot} onChange={onChange} />
+
+      {/* 槽位关联（v0.29）：子槽位（父栏之后生成，AI 知道父栏内容）/ 接续槽位组（合并一次 AI 调用拆分回填） */}
+      <Field
+        label="槽位关联（高级）"
+        hint={{
+          children:
+            '子槽位 = 父栏生成后再生成，AI 自动获得父栏内容并与之衔接；接续槽位组 = 组内各栏合并为一次 AI 调用，输出自动拆分回填（组名相同即互为接续）'
+        } as never}
+        className={styles.fieldGap}
+      >
+        <Dropdown
+          value={rel?.type === 'child' ? '子槽位' : rel?.type === 'continuation' ? '接续槽位组' : '无关联'}
+          selectedOptions={[rel?.type ?? 'none']}
+          onOptionSelect={(_, d) => {
+            const v = (d.optionValue as string) ?? 'none'
+            onChange({
+              relation:
+                v === 'child'
+                  ? { type: 'child', parentId: '' }
+                  : v === 'continuation'
+                    ? { type: 'continuation', group: `grp-${slot.id.slice(0, 6)}` }
+                    : undefined
+            })
+          }}
+        >
+          <Option value="none">无关联</Option>
+          <Option value="child">子槽位（父栏之后生成）</Option>
+          <Option value="continuation">接续槽位组（合并一次调用）</Option>
+        </Dropdown>
+      </Field>
+      {rel?.type === 'child' && (
+        <Field label="父槽位（子栏生成前会读取父栏内容）">
+          <Dropdown
+            placeholder={rel.parentId ? undefined : '请选择父槽位'}
+            value={parentOptions.find((o) => o.id === rel.parentId)?.label ?? ''}
+            selectedOptions={[rel.parentId]}
+            onOptionSelect={(_, d) =>
+              onChange({ relation: { type: 'child', parentId: (d.optionValue as string) ?? '' } })
+            }
+          >
+            {parentOptions.map((o) => (
+              <Option key={o.id} value={o.id}>
+                {o.label}
+              </Option>
+            ))}
+          </Dropdown>
+        </Field>
+      )}
+      {rel?.type === 'continuation' && (
+        <Field label="接续组名（相同组名的槽位互为接续，按版面顺序拆分）">
+          <Input
+            value={rel.group}
+            onChange={(_, d) => onChange({ relation: { type: 'continuation', group: d.value } })}
+          />
+        </Field>
+      )}
 
       {onGenerateSlot && slot.prompt.trim() && (
         <Button

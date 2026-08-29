@@ -413,7 +413,7 @@
 }
 .briefy-slot[data-role='notice'] {
   border: 1px solid var(--colorNeutralStroke1, #c7c7c7) !important;
-  background: var(--colorNeutralBackground3, #fafbfc);
+  background: transparent;
 }
 .briefy-slot[data-role='custom'],
 .briefy-slot[data-role='free'] {
@@ -430,6 +430,16 @@
   border-color: var(--colorNeutralStroke1Hover, #979797) !important;
 }
 
+/* 打印/导出：不导出角色徽章（v0.28 反馈） */
+.print-view .slot-role-badge {
+  display: none;
+}
+
+/* 手动布局：徽章内嵌槽位内部（不越界被相邻槽位遮挡） */
+.briefy-slot.badge-inside .slot-role-badge {
+  top: 2px;
+}
+
 /* 角色徽章按需显形：默认隐藏，hover/选中时浮现（v0.28） */
 .briefy-slot .slot-role-badge {
   opacity: 0;
@@ -438,4 +448,37 @@
 .briefy-slot:hover .slot-role-badge,
 .briefy-slot.slot-role-visible .slot-role-badge {
   opacity: 1;
+}
+
+/* ---------- 手动布局：对齐参考线 + 拖拽数值提示（v0.29）---------- */
+.align-guide-v {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  border-left: 1px dashed #0f6cbd;
+  z-index: 60;
+  pointer-events: none;
+}
+.align-guide-h {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 1px dashed #0f6cbd;
+  z-index: 60;
+  pointer-events: none;
+}
+.fit-hint {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(9, 88, 217, 0.9);
+  color: #fff;
+  font-size: 9px;
+  pointer-events: none;
+  z-index: 11;
+  white-space: nowrap;
 }

@@ -104,7 +104,8 @@ const useStyles = makeStyles({
   },
   slot: {
     position: 'relative',
-    backgroundColor: tokens.colorNeutralBackground2,
+    // 无底色：打印/成品观感优先，边框线型按角色区分（见 main.css .briefy-slot）
+    backgroundColor: 'transparent',
     // 更柔和的边框层级：暗色下不刺眼，亮色下仍清晰
     border: `1px solid ${tokens.colorNeutralStroke2}`,
     borderRadius: tokens.borderRadiusMedium,
@@ -256,6 +257,11 @@ function SlotBox({
     if (!el) return
     const actualMm = pxToMm(el.scrollHeight)
     const limit = slot.estHeight + (slot.overflow ?? 0)
+    // 自由创作槽（v0.29）：不限字数格式——跳过字号缩放与溢出腾挪，内容自然流
+    if (slot.role === 'free') {
+      if (slot.status === 'done') onFit?.(slot.id, 1, false)
+      return
+    }
     let overflowing = false
     if (actualMm > limit + 1) {
       if (growingRef.current) {
@@ -282,7 +288,7 @@ function SlotBox({
   return (
     <div
       ref={ref}
-      className={`briefy-slot ${styles.slot} ${selected ? styles.slotSelected : ''} ${hovered ? styles.slotHover : ''} ${slot.status === 'generating' ? 'slot-generating' : ''} ${selected ? 'slot-role-visible' : ''}`}
+      className={`briefy-slot ${styles.slot} ${selected ? styles.slotSelected : ''} ${hovered ? styles.slotHover : ''} ${slot.status === 'generating' ? 'slot-generating' : ''} ${selected ? 'slot-role-visible' : ''} ${fillHeight ? 'badge-inside' : ''}`}
       data-slot-id={slot.id}
       data-role={slot.role}
       style={{
@@ -348,6 +354,8 @@ function PageView({ page, selectedSlotId, onSelectSlot, onOverflow, onFit, manua
   const sheetRef = useRef<HTMLDivElement | null>(null)
   /** 拖拽预览（未释放前仅视觉偏移，释放时一次性提交） */
   const [preview, setPreview] = useState<null | { id: string; x: number; y: number; w: number; h: number; cross?: 'prev' | 'next' | null }>(null)
+  /** 对齐参考线（拖动时与其他槽位边缘/页面中线对齐） */
+  const [guides, setGuides] = useState<{ v: number[]; h: number[] }>({ v: [], h: [] })
   const drag = useRef<null | { id: string; mode: 'move' | 'resize'; sx: number; sy: number; bx: number; by: number; bw: number; bh: number; last: { x: number; y: number; w: number; h: number; cross?: 'prev' | 'next' | null } }>(null)
 
   // 版式偏好（缺省 = 现有稳定体验）；灰阶用 CSS filter，字体字号行距用内联样式
@@ -384,22 +392,50 @@ function PageView({ page, selectedSlotId, onSelectSlot, onOverflow, onFit, manua
     const dx = (e.clientX - d.sx) * k
     const dy = (e.clientY - d.sy) * k
     if (d.mode === 'move') {
-      // 双向跨页检测：拖出页底 → 下一页；拖出页顶 → 上一页（预览钳在页内，释放时提交）
+      // 网格吸附（5mm）+ 对齐参考线：与其他槽位边缘/中点、页边距、页面中线对齐时贴齐并显示参考线
       const usable = 297 - marginNum
-      const ny = d.by + dy
-      const cross = ny + d.bh > usable ? ('next' as const) : ny < marginNum - 12 ? ('prev' as const) : null
-      const py = cross === 'prev' ? marginNum : Math.min(Math.max(marginNum, ny), usable - d.bh)
+      const others = page.slots.filter((s) => s.id !== d.id)
+      const eh = (s: Slot): number => s.estHeight + (s.overflow ?? 0)
+      const tx = [marginNum, 105, 210 - marginNum, ...others.flatMap((s) => [s.region.x, s.region.x + s.region.width / 2, s.region.x + s.region.width])]
+      const ty = [marginNum, usable / 2, ...others.flatMap((s) => [s.region.y, s.region.y + eh(s) / 2, s.region.y + eh(s)])]
+      let nx = Math.round((d.bx + dx) / 5) * 5
+      const TOL = 2
+      // 对齐吸附：左/中/右三锚点在容差内贴齐最近目标，记录参考线位置
+      const snapAxis = (val: number, size: number, targets: number[]): { pos: number; lines: number[] } => {
+        let best: { pos: number; line: number; diff: number } | null = null
+        for (const t of targets) {
+          for (const anchor of [0, size / 2, size]) {
+            const pos = t - anchor
+            const diff = Math.abs(val + anchor - t)
+            if (diff <= TOL && (!best || diff < best.diff)) best = { pos, line: t, diff }
+          }
+        }
+        return best ? { pos: best.pos, lines: [best.line] } : { pos: val, lines: [] }
+      }
+      const sx = snapAxis(nx, d.bw, tx)
+      nx = sx.pos
+      // y：网格 snap 后再做对齐（对齐优先级高，直接覆盖）
+      const rawY = d.by + dy
+      let cy = Math.max(marginNum, Math.round(rawY / 5) * 5)
+      const sy = snapAxis(cy, d.bh, ty)
+      if (sy.lines.length > 0) cy = Math.max(marginNum, sy.pos)
+      else cy = Math.min(Math.max(marginNum, rawY), usable - d.bh)
+      // 跨页检测（原有逻辑）
+      const cross = rawY + d.bh > usable + 5 ? ('next' as const) : rawY < marginNum - 12 ? ('prev' as const) : null
+      const py = cross === 'prev' ? marginNum : Math.min(Math.max(marginNum, cy), usable - d.bh)
       d.last = { ...d.last, x: d.bx + dx, y: cross ? d.last.y : py, cross }
       setPreview((p) => p && { ...p, x: d.bx + dx, y: cross ? p.y : py, cross })
-    } else {
-      d.last = { ...d.last, w: d.bw + dx, h: Math.max(15, d.bh + dy) }
-      setPreview((p) => p && { ...p, w: d.last.w, h: d.last.h })
+      setGuides({ v: sx.lines, h: cross ? [] : sy.lines })
+      return
     }
+    d.last = { ...d.last, w: d.bw + dx, h: Math.max(15, d.bh + dy) }
+    setPreview((p) => p && { ...p, w: d.last.w, h: d.last.h })
   }
   const endDrag = (): void => {
     const d = drag.current
     drag.current = null
     setPreview(null)
+    setGuides({ v: [], h: [] })
     if (!d) return
     // 用 ref 里的最新预览提交（state 闭包可能过期，同步事件序列中 setPreview 尚未提交渲染）
     if (d.mode === 'move') {
@@ -409,6 +445,30 @@ function PageView({ page, selectedSlotId, onSelectSlot, onOverflow, onFit, manua
       onResizeSlot?.(d.id, d.last.w, d.last.h)
     }
   }
+
+  // 键盘微调（手动模式 + 选中槽位）：方向键 1mm，Shift+方向键 5mm；输入框聚焦时不拦截
+  useEffect(() => {
+    if (!manual || !selectedSlotId) return
+    const onKey = (e: KeyboardEvent): void => {
+      const tag = (document.activeElement?.tagName ?? '').toLowerCase()
+      if (tag === 'input' || tag === 'textarea') return
+      const step = e.shiftKey ? 5 : 1
+      const delta: Record<string, [number, number]> = {
+        ArrowLeft: [-step, 0],
+        ArrowRight: [step, 0],
+        ArrowUp: [0, -step],
+        ArrowDown: [0, step]
+      }
+      const dv = delta[e.key]
+      if (!dv) return
+      const slot = page.slots.find((s) => s.id === selectedSlotId)
+      if (!slot) return
+      e.preventDefault()
+      onMoveSlot?.(slot.id, slot.region.x + dv[0], slot.region.y + dv[1])
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [manual, selectedSlotId, page, onMoveSlot])
 
   const renderSlot = (slot: Slot): React.JSX.Element => (
     <SlotBox
@@ -519,6 +579,12 @@ function PageView({ page, selectedSlotId, onSelectSlot, onOverflow, onFit, manua
             onPointerCancel={endDrag}
           >
             {renderSlot(slot)}
+            {/* 拖拽实时数值提示 */}
+            {preview?.id === slot.id && (
+              <div className="fit-hint">
+                X {Math.round(x)} · Y {Math.round(y)} · {Math.round(w)}×{Math.round(h)}
+              </div>
+            )}
           </div>
         )
       })
@@ -547,6 +613,13 @@ function PageView({ page, selectedSlotId, onSelectSlot, onOverflow, onFit, manua
         </div>
       )}
       {manualNodes ?? rows}
+      {/* 对齐参考线（拖动中显示） */}
+      {guides.v.map((x, i) => (
+        <div key={`v${i}`} className="align-guide-v" style={{ left: `${x}mm` }} />
+      ))}
+      {guides.h.map((y, i) => (
+        <div key={`h${i}`} className="align-guide-h" style={{ top: `${y}mm` }} />
+      ))}
       {/* 跨页松手反馈：拖出页顶/页底时提示落点，避免用户一脸懵 */}
       {preview?.cross && (
         <div
