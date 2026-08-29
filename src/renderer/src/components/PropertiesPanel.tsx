@@ -20,6 +20,7 @@ import { useState } from 'react'
 import type { Slot, SlotKind, SlotRole, ToolId } from '../../../shared/layout'
 import { ROLE_DEFS, resolveRoleName } from '../../../shared/layout'
 import type { CustomRole, InfoSource } from '../../../shared/settings'
+import { OptionGroup } from '@fluentui/react-components'
 import { listWidgetInstances, updateWidgetInstance } from '../utils/widget-edit'
 import { WIDGET_REGISTRY } from '../../../shared/widgets'
 
@@ -186,14 +187,37 @@ function PropertiesPanel({
       <Field label="槽位角色（决定 AI 的职责）" className={styles.fieldGap}>
         <Dropdown
           value={resolveRoleName(slot, customRoles)}
-          selectedOptions={[slot.role]}
-          onOptionSelect={(_, data) => onChange({ role: data.optionValue as SlotRole })}
+          selectedOptions={[slot.role === 'custom' ? `custom:${slot.customRoleName ?? ''}` : slot.role]}
+          onOptionSelect={(_, data) => {
+            const v = (data.optionValue as string) ?? ''
+            // 自定义角色：value 前缀 custom:，映射为 role=custom + customRoleName
+            if (v.startsWith('custom:')) {
+              onChange({ role: 'custom', customRoleName: v.slice(7) || undefined })
+            } else if (v) {
+              onChange({ role: v as SlotRole, customRoleName: undefined })
+            }
+          }}
         >
-          {Object.entries(ROLE_DEFS).map(([value, def]) => (
-            <Option key={value} value={value} text={def.name}>
-              {def.name}
-            </Option>
-          ))}
+          <OptionGroup label="内置角色">
+            {Object.entries(ROLE_DEFS).map(([value, def]) => (
+              <Option key={value} value={value} text={def.name}>
+                {def.name}
+              </Option>
+            ))}
+          </OptionGroup>
+          <OptionGroup label="自定义角色（设置 → 生成 → 自定义角色库）">
+            {customRoles.length > 0 ? (
+              customRoles.map((c) => (
+                <Option key={c.name} value={`custom:${c.name}`} text={c.name}>
+                  {c.name}
+                </Option>
+              ))
+            ) : (
+              <Option value="custom:" text="（角色库为空，去设置 → 生成 新建）">
+                （角色库为空，去设置 → 生成 新建）
+              </Option>
+            )}
+          </OptionGroup>
         </Dropdown>
       </Field>
 
