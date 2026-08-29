@@ -138,6 +138,103 @@ const sizeAfter = await c.evalJs(`(() => {
 log('缩放前:', JSON.stringify(sizeBefore), '→ 缩放后:', JSON.stringify(sizeAfter))
 if (sizeAfter.w === sizeBefore.w && sizeAfter.h === sizeBefore.h) fail('拖角缩放后尺寸未变化')
 
+// ---- 3.8 跨页：拖出页底 → 提示条出现 + 松手掉到下一页 ----
+const opts = (x, y, id = 11) => ({ bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: id, pointerType: 'mouse', isPrimary: true, button: 0 })
+const slotIdBefore = await c.evalJs(`document.querySelector('[data-slot-id]').dataset.slotId`)
+const dragSeq = `(() => {
+  const el = document.querySelector('[data-slot-id]')
+  const wrap = el.parentElement
+  const r = wrap.getBoundingClientRect()
+  const opts = (x, y, id) => ({ bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: id, pointerType: 'mouse', isPrimary: true, button: 0 })
+  wrap.dispatchEvent(new PointerEvent('pointerdown', opts(r.x + 20, r.y + 10, 11)))
+  return r
+})()`
+// 第一步：down + 大幅下移 → 应出现"下一页"提示
+await c.evalJs(`(() => {
+  const el = document.querySelector('[data-slot-id]')
+  const wrap = el.parentElement
+  const r = wrap.getBoundingClientRect()
+  const opts = (x, y, id) => ({ bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: id, pointerType: 'mouse', isPrimary: true, button: 0 })
+  wrap.dispatchEvent(new PointerEvent('pointerdown', opts(r.x + 20, r.y + 10, 11)))
+  wrap.dispatchEvent(new PointerEvent('pointermove', opts(r.x + 20, r.y + 900, 11)))
+  return true
+})()`)
+await sleep(300)
+const hintNext = await c.evalJs(`(() => {
+  const hint = document.querySelector('.cross-hint')
+  return { hint: Boolean(hint), text: hint?.textContent ?? '' }
+})()`)
+log('拖出页底提示:', JSON.stringify(hintNext))
+if (!hintNext.hint || !hintNext.text.includes('下一页')) fail('拖出页底未显示「下一页」提示')
+await c.evalJs(`(() => {
+  const wrap = document.querySelector('[data-slot-id]').parentElement
+  wrap.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, clientX: 0, clientY: 0, pointerId: 11, pointerType: 'mouse', isPrimary: true, button: 0 }))
+  return true
+})()`)
+await sleep(500)
+const afterNext = await c.evalJs(`(() => {
+  const el = document.querySelector('[data-slot-id="${slotIdBefore}"]')
+  return { sameSlot: Boolean(el), top: el?.parentElement.style.top ?? null }
+})()`)
+log('跨下一页后槽位 top:', JSON.stringify(afterNext))
+if (!afterNext.sameSlot || afterNext.top !== '15mm') fail('拖出页底未掉到下一页顶部')
+
+// ---- 3.9 跨页：拖出页顶 → 提示 + 松手回到上一页底部 ----
+await c.evalJs(`(() => {
+  const el = document.querySelector('[data-slot-id="${slotIdBefore}"]')
+  const wrap = el.parentElement
+  const r = wrap.getBoundingClientRect()
+  const opts = (x, y, id) => ({ bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: id, pointerType: 'mouse', isPrimary: true, button: 0 })
+  wrap.dispatchEvent(new PointerEvent('pointerdown', opts(r.x + 20, r.y + 30, 12)))
+  wrap.dispatchEvent(new PointerEvent('pointermove', opts(r.x + 20, r.y - 900, 12)))
+  return true
+})()`)
+await sleep(300)
+const hintPrev = await c.evalJs(`(() => {
+  const hint = document.querySelector('.cross-hint')
+  return { hint: Boolean(hint), text: hint?.textContent ?? '' }
+})()`)
+log('拖出页顶提示:', JSON.stringify(hintPrev))
+if (!hintPrev.hint || !hintPrev.text.includes('上一页')) fail('拖出页顶未显示「上一页」提示')
+await c.evalJs(`(() => {
+  const wrap = document.querySelector('[data-slot-id="${slotIdBefore}"]').parentElement
+  wrap.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, clientX: 0, clientY: 0, pointerId: 12, pointerType: 'mouse', isPrimary: true, button: 0 }))
+  return true
+})()`)
+await sleep(500)
+const afterPrev = await c.evalJs(`(() => {
+  const el = document.querySelector('[data-slot-id="${slotIdBefore}"]')
+  return { sameSlot: Boolean(el), top: el?.parentElement.style.top ?? null }
+})()`)
+log('跨回上一页后槽位 top:', JSON.stringify(afterPrev))
+if (!afterPrev.sameSlot || afterPrev.top === '15mm') fail('拖出页顶未回到上一页（落点应贴底部而非顶部）')
+
+// ---- 3.10 页面排序：切到第 2 页 → 点「前移」→ 页签顺序交换 ----
+const tabsBefore = await c.evalJs(`[...document.querySelectorAll('button')].filter((b) => /第 \\d+ 页/.test(b.textContent)).map((b) => b.textContent.match(/第 \\d+ 页/)[0])`)
+await c.evalJs(`(() => {
+  const tabs = [...document.querySelectorAll('button')].filter((b) => /第 \\d+ 页/.test(b.textContent))
+  tabs[1].click()
+  return true
+})()`)
+await sleep(300)
+const moved = await c.evalJs(`(() => {
+  const btn = document.querySelector('[aria-label*="前移"]')
+  if (!btn) return 'no-btn'
+  window.__activeTabBefore = btn.closest('button').textContent.match(/第 \\d+ 页/)[0]
+  btn.click()
+  return 'clicked'
+})()`)
+await sleep(400)
+const tabsAfter = await c.evalJs(`(() => {
+  const btn = document.querySelector('[aria-label*="前移"]')
+  const activeLabel = btn ? btn.closest('button').textContent.match(/第 \\d+ 页/)[0] : null
+  const tabs = [...document.querySelectorAll('button')].filter((b) => /第 \\d+ 页/.test(b.textContent)).map((b) => b.textContent.match(/第 \\d+ 页/)[0])
+  return { activeLabel, tabs }
+})()`)
+log('moved:', moved, '排序前激活页签:', moved === 'clicked' ? '见后' : moved, '→ 排序后:', JSON.stringify(tabsAfter))
+// 排序生效的标志：原第 2 页（排序前激活页签）移动到位置 0（显示为「第 1 页」）
+if (moved !== 'clicked' || tabsAfter.activeLabel !== '第 1 页') fail('页面排序未生效')
+
 // ---- 4. 切回自动排布 ----
 const back = await c.evalJs(`(() => {
   const btn = [...document.querySelectorAll('button')].find((b) => b.textContent.includes('手动布局'))

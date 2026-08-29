@@ -1,6 +1,6 @@
 import type * as React from 'react'
 import { makeStyles, Text, tokens, Tooltip } from '@fluentui/react-components'
-import { DocumentRegular, DeleteRegular, AddRegular } from '@fluentui/react-icons'
+import { DocumentRegular, DeleteRegular, AddRegular, ChevronLeftRegular, ChevronRightRegular } from '@fluentui/react-icons'
 import type { Page } from '../../../shared/layout'
 
 const useStyles = makeStyles({
@@ -46,10 +46,12 @@ interface PageTabsProps {
   onSelect: (pageId: string) => void
   onAdd: () => void
   onRemove: (pageId: string) => void
+  /** 调整页面顺序（dir -1 = 前移，1 = 后移） */
+  onMove: (pageId: string, dir: -1 | 1) => void
 }
 
-/** 底部页签栏：Word 式多页管理 */
-function PageTabs({ pages, currentPageId, onSelect, onAdd, onRemove }: PageTabsProps): React.JSX.Element {
+/** 底部页签栏：Word 式多页管理（当前页签可前后移动调序） */
+function PageTabs({ pages, currentPageId, onSelect, onAdd, onRemove, onMove }: PageTabsProps): React.JSX.Element {
   const styles = useStyles()
   return (
     <div className={styles.bar}>
@@ -61,7 +63,33 @@ function PageTabs({ pages, currentPageId, onSelect, onAdd, onRemove }: PageTabsP
           onClick={() => onSelect(page.id)}
         >
           <DocumentRegular />
-          <Text size={200}>第 {i + 1} 页</Text>
+          <Text size={200}>第 {i + 1} 页 · {page.slots.length} 格</Text>
+          {page.id === currentPageId && pages.length > 1 && (
+            <>
+              <span
+                role="button"
+                aria-label={`第 ${i + 1} 页前移`}
+                style={{ opacity: i > 0 ? 1 : 0.3, display: 'inline-flex' }}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  if (i > 0) onMove(page.id, -1)
+                }}
+              >
+                <ChevronLeftRegular fontSize={12} />
+              </span>
+              <span
+                role="button"
+                aria-label={`第 ${i + 1} 页后移`}
+                style={{ opacity: i < pages.length - 1 ? 1 : 0.3, display: 'inline-flex' }}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  if (i < pages.length - 1) onMove(page.id, 1)
+                }}
+              >
+                <ChevronRightRegular fontSize={12} />
+              </span>
+            </>
+          )}
           {pages.length > 1 && (
             <span
               role="button"

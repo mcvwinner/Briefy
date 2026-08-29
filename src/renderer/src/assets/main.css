@@ -330,3 +330,65 @@
 .print-page:last-child {
   break-after: auto;
 }
+
+/* 生成中动画（v0.24：缓解等待感）---------- */
+/* 槽位呼吸光圈 + 斜向扫光 */
+@keyframes briefy-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(9, 88, 217, 0.30); }
+  50% { box-shadow: 0 0 0 5px rgba(9, 88, 217, 0); }
+}
+@keyframes briefy-shimmer {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(100%); }
+}
+@keyframes briefy-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes briefy-dots {
+  0% { content: ''; }
+  25% { content: '.'; }
+  50% { content: '..'; }
+  75%, 100% { content: '...'; }
+}
+.slot-generating {
+  position: relative;
+  animation: briefy-pulse 1.6s ease-in-out infinite;
+  border-color: #0958d9 !important;
+}
+.slot-generating::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(105deg, transparent 40%, rgba(255, 255, 255, 0.18) 50%, transparent 60%);
+  transform: translateX(-100%);
+  animation: briefy-shimmer 1.8s linear infinite;
+}
+.slot-status-spin {
+  display: inline-block;
+  animation: briefy-spin 0.9s linear infinite;
+}
+.slot-empty-dots::after {
+  content: '';
+  animation: briefy-dots 1.2s steps(1) infinite;
+}
+
+/* 手动布局：跨页松手反馈提示（v0.24）---------- */
+.cross-hint {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  padding: 4px 14px;
+  border-radius: 999px;
+  background: #0958d9;
+  color: #fff;
+  font-size: 12px;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  animation: briefy-hint-in 0.15s ease-out;
+}
+@keyframes briefy-hint-in {
+  from { opacity: 0; transform: translateX(-50%) scale(0.9); }
+  to { opacity: 1; transform: translateX(-50%) scale(1); }
+}

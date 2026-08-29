@@ -151,31 +151,40 @@ export function useLayout(prefs?: LayoutPrefs) {
     [doc, currentPageId, repaginateAll]
   )
 
-  /** 手动模式拖拽移动：绝对定位 x/y；拖出本页底部 → 掉到下一页（无则新建）顶部同 x 处 */
+  /** 手动模式拖拽移动：绝对定位 x/y；拖出本页底部/顶部 → 掉到下一页/上一页（无则钳回本页） */
   const moveSlot = useCallback(
-    (slotId: string, x: number, y: number): void => {
+    (slotId: string, x: number, y: number, cross?: 'prev' | 'next'): void => {
       const usable = geo.pageHeightMM - geo.marginMM
       const idx = doc.pages.findIndex((p) => p.slots.some((s) => s.id === slotId))
       if (idx < 0) return
       const slot = doc.pages[idx].slots.find((s) => s.id === slotId)
       if (!slot) return
       const h = slot.estHeight + (slot.overflow ?? 0)
-      const crossPage = y + h > usable
-      if (!crossPage) {
+      // 目标页与落点：显式 cross 优先；未带 cross 时拖出页底仍掉下一页
+      let targetIdx = idx
+      let ty = y
+      if (cross === 'prev' && idx > 0) {
+        targetIdx = idx - 1
+        ty = Math.max(geo.marginMM, usable - h) // 上一页底部
+      } else if (cross === 'next' || y + h > usable) {
+        targetIdx = idx + 1
+        ty = geo.marginMM
+      }
+      if (targetIdx === idx) {
         updateSlot(slotId, { region: { ...slot.region, x, y } })
         return
       }
-      // 跨页：移入下一页（必要时新建）顶部同 x 位置
+      // 跨页：移入目标页（必要时新建）
       const pages = [...doc.pages]
-      if (!pages[idx + 1]) pages.push({ id: crypto.randomUUID(), slots: [] })
+      if (!pages[targetIdx]) pages.push({ id: crypto.randomUUID(), slots: [] })
       const nextPages = pages.map((p, i) => {
         if (i === idx) return { ...p, slots: p.slots.filter((s) => s.id !== slotId) }
-        if (i === idx + 1)
-          return { ...p, slots: [...p.slots, { ...slot, region: { ...slot.region, x, y: geo.marginMM } }] }
+        if (i === targetIdx)
+          return { ...p, slots: [...p.slots, { ...slot, region: { ...slot.region, x, y: ty } }] }
         return p
       })
       setDoc({ ...doc, pages: nextPages })
-      setCurrentPageId(pages[idx + 1].id)
+      setCurrentPageId(pages[targetIdx].id)
     },
     [doc, geo, updateSlot]
   )
@@ -225,6 +234,19 @@ export function useLayout(prefs?: LayoutPrefs) {
       setDoc({ ...doc, pages })
       const next = pages[Math.min(idx, pages.length - 1)]
       setCurrentPageId(next.id)
+    },
+    [doc]
+  )
+
+  /** 调整页面顺序：与相邻页交换（dir -1 = 前移，1 = 后移） */
+  const movePage = useCallback(
+    (pageId: string, dir: -1 | 1): void => {
+      const idx = doc.pages.findIndex((p) => p.id === pageId)
+      const next = idx + dir
+      if (idx < 0 || next < 0 || next >= doc.pages.length) return
+      const pages = [...doc.pages]
+      ;[pages[idx], pages[next]] = [pages[next], pages[idx]]
+      setDoc({ ...doc, pages })
     },
     [doc]
   )
@@ -281,6 +303,7 @@ export function useLayout(prefs?: LayoutPrefs) {
     resizeSlot,
     addPage,
     removePage,
+    movePage,
     newDoc,
     loadDoc
   }

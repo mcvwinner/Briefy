@@ -1,6 +1,31 @@
 import type { WidgetId, WidgetParams } from './widgets'
 import { WIDGET_REGISTRY } from './widgets'
 
+/**
+ * 统计内容的有效文字数：完整剥离 ::: 控件块（含块内数据行，如图表数据、时间线条目），
+ * 只计正文文字——字数协调/质量报告反映的是文字体积，控件自身体积由渲染层实测适配。
+ * 带参数的单行控件（如 :::stat{...}）不开启剥离块；无参数的 :::id 视为开块，直到 :::/下一个控件行闭合。
+ */
+export function countContentChars(content: string): number {
+  let inBlock = false
+  let count = 0
+  for (const raw of content.split('\n')) {
+    const line = raw.trim()
+    if (line.startsWith(':::')) {
+      const singleLine = /^:::\w+\s*\{/.test(line)
+      if (inBlock) {
+        inBlock = singleLine ? false : line !== ':::' // 块内：纯 ':::' 闭合；':::xxx' 异常结束并开新块
+      } else {
+        inBlock = !singleLine
+      }
+      continue
+    }
+    if (inBlock) continue
+    count += raw.replace(/\s+/g, '').length
+  }
+  return count
+}
+
 /** 解析后的内容节点流：段落 / 小标题 / 控件 */
 export type ContentNode =
   | { type: 'paragraph'; text: string }

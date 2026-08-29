@@ -275,7 +275,7 @@ function SlotBox({
   return (
     <div
       ref={ref}
-      className={`${styles.slot} ${selected ? styles.slotSelected : ''} ${hovered ? styles.slotHover : ''}`}
+      className={`${styles.slot} ${selected ? styles.slotSelected : ''} ${hovered ? styles.slotHover : ''} ${slot.status === 'generating' ? 'slot-generating' : ''}`}
       data-slot-id={slot.id}
       style={{
         ['--briefy-fit' as string]: fitScale,
@@ -300,8 +300,8 @@ interface PageViewProps {
   onOverflow?: (slotId: string, deltaMm: number) => void
   /** 手动布局模式：槽位绝对定位，可拖拽移动/缩放；缺省 = 自动流式排布 */
   manual?: boolean
-  /** 手动模式：拖拽结束提交位置（跨页由上层处理） */
-  onMoveSlot?: (slotId: string, x: number, y: number) => void
+  /** 手动模式：拖拽结束提交位置（跨页方向 prev/next 由上层处理） */
+  onMoveSlot?: (slotId: string, x: number, y: number, cross?: 'prev' | 'next') => void
   /** 手动模式：拖角结束提交尺寸 */
   onResizeSlot?: (slotId: string, width: number, estHeight: number) => void
   /** 版式偏好（页边距/栏距/字体/字号/行距/黑白优先/页眉页脚）；缺省 = 内置默认 */
@@ -337,8 +337,8 @@ function PageView({ page, selectedSlotId, onSelectSlot, onOverflow, manual, onMo
   const { full, left, right } = groupColumns(page.slots)
   const sheetRef = useRef<HTMLDivElement | null>(null)
   /** 拖拽预览（未释放前仅视觉偏移，释放时一次性提交） */
-  const [preview, setPreview] = useState<null | { id: string; x: number; y: number; w: number; h: number }>(null)
-  const drag = useRef<null | { id: string; mode: 'move' | 'resize'; sx: number; sy: number; bx: number; by: number; bw: number; bh: number; last: { x: number; y: number; w: number; h: number } }>(null)
+  const [preview, setPreview] = useState<null | { id: string; x: number; y: number; w: number; h: number; cross?: 'prev' | 'next' | null }>(null)
+  const drag = useRef<null | { id: string; mode: 'move' | 'resize'; sx: number; sy: number; bx: number; by: number; bw: number; bh: number; last: { x: number; y: number; w: number; h: number; cross?: 'prev' | 'next' | null } }>(null)
 
   // 版式偏好（缺省 = 现有稳定体验）；灰阶用 CSS filter，字体字号行距用内联样式
   const margin = prefs?.marginMM !== undefined ? `${Math.min(25, Math.max(10, prefs.marginMM))}mm` : '15mm'
@@ -374,8 +374,13 @@ function PageView({ page, selectedSlotId, onSelectSlot, onOverflow, manual, onMo
     const dx = (e.clientX - d.sx) * k
     const dy = (e.clientY - d.sy) * k
     if (d.mode === 'move') {
-      d.last = { ...d.last, x: d.bx + dx, y: Math.max(marginNum, d.by + dy) }
-      setPreview((p) => p && { ...p, x: d.last.x, y: d.last.y })
+      // 双向跨页检测：拖出页底 → 下一页；拖出页顶 → 上一页（预览钳在页内，释放时提交）
+      const usable = 297 - marginNum
+      const ny = d.by + dy
+      const cross = ny + d.bh > usable ? ('next' as const) : ny < marginNum - 12 ? ('prev' as const) : null
+      const py = cross === 'prev' ? marginNum : Math.min(Math.max(marginNum, ny), usable - d.bh)
+      d.last = { ...d.last, x: d.bx + dx, y: cross ? d.last.y : py, cross }
+      setPreview((p) => p && { ...p, x: d.bx + dx, y: cross ? p.y : py, cross })
     } else {
       d.last = { ...d.last, w: d.bw + dx, h: Math.max(15, d.bh + dy) }
       setPreview((p) => p && { ...p, w: d.last.w, h: d.last.h })
@@ -389,7 +394,7 @@ function PageView({ page, selectedSlotId, onSelectSlot, onOverflow, manual, onMo
     // 用 ref 里的最新预览提交（state 闭包可能过期，同步事件序列中 setPreview 尚未提交渲染）
     if (d.mode === 'move') {
       const x = Math.min(210 - marginNum - 30, Math.max(marginNum, d.last.x))
-      onMoveSlot?.(d.id, x, d.last.y)
+      onMoveSlot?.(d.id, x, d.last.y, d.last.cross ?? undefined)
     } else {
       onResizeSlot?.(d.id, d.last.w, d.last.h)
     }
@@ -426,7 +431,9 @@ function PageView({ page, selectedSlotId, onSelectSlot, onOverflow, manual, onMo
           )}
         </div>
       ) : slot.status === 'generating' ? (
-        <div className={styles.slotEmpty}>生成中…</div>
+        <div className={styles.slotEmpty}>
+          生成中<span className="slot-empty-dots" />
+        </div>
       ) : slot.status === 'error' ? (
         <div className={styles.slotError}>{slot.content}</div>
       ) : (
@@ -434,7 +441,7 @@ function PageView({ page, selectedSlotId, onSelectSlot, onOverflow, manual, onMo
           {slot.prompt ? slot.prompt.slice(0, 40) : '空槽位（在右侧填写提示词）'}
         </div>
       )}
-      {slot.status === 'generating' && <span className={styles.slotStatus}>⟳</span>}
+      {slot.status === 'generating' && <span className={`${styles.slotStatus} slot-status-spin`}>⟳</span>}
     </SlotBox>
   )
   // 有左右栏时：full 槽位按序渲染；遇到首个半栏槽位时进入"双栏区"，双栏区结束后继续 full 流。
@@ -529,6 +536,15 @@ function PageView({ page, selectedSlotId, onSelectSlot, onOverflow, manual, onMo
         </div>
       )}
       {manualNodes ?? rows}
+      {/* 跨页松手反馈：拖出页顶/页底时提示落点，避免用户一脸懵 */}
+      {preview?.cross && (
+        <div
+          className="cross-hint"
+          style={preview.cross === 'prev' ? { top: '10mm' } : { bottom: '10mm' }}
+        >
+          {preview.cross === 'prev' ? '↑ 松手移动到上一页' : '↓ 松手移动到下一页'}
+        </div>
+      )}
     </div>
   )
 }

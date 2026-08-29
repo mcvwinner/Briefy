@@ -40,6 +40,7 @@ import {
   DeleteRegular,
   ArrowExportLtrRegular,
   ArrowImportRegular,
+  ArrowClockwiseRegular,
   EditRegular
 } from '@fluentui/react-icons'
 import PageView from './components/PageView'
@@ -55,6 +56,7 @@ import { ROLE_DEFS, resolveRoleName } from '../../shared/layout'
 import { PRESETS, buildDocFromPreset } from '../../shared/presets'
 import { toPresetSlots, fromPresetSlots, type UserPreset } from '../../shared/user-preset'
 // enforceLength（v0.20 引入的截断重组）在 v0.21 起不再被调用，函数与测试保留在 shared/parse.ts 备用
+import { countContentChars } from '../../shared/parse'
 declare global {
   interface Window {
     briefy?: {
@@ -326,7 +328,7 @@ function App(): React.JSX.Element {
   const [phase, setPhase] = useState<'选题中…' | '写作中…' | '审稿中…' | null>(null)
   /** 质量报告卡（ROADMAP 反馈：让改进可见） */
   const [qualityReport, setQualityReport] = useState<{
-    rows: { role: string; status: string; len: number; limit: number; ok: boolean | null; hasSource: boolean }[]
+    rows: { role: string; status: string; len: number; limit: number; ok: boolean | null; hasSource: boolean; rewrites: number }[]
     usage?: { promptTokens: number; completionTokens: number; totalTokens: number }
     reviewFixed: number
   } | null>(null)
@@ -423,12 +425,16 @@ function App(): React.JSX.Element {
       }
       // ---- 长度协调（v0.22：槽位定字数；偏差小微调，偏差大退稿）----
       // 可接受区间 80%~115%（用户约定）：区间内交给渲染层字号微调（少→增大字号，多→缩小字号/放宽槽位）；
-      // 区间外打回重写一次（带方向性字数引导），重写后仍偏差大则不再截断，由渲染层调槽位/字号兜底
+      // 区间外打回重写一次（带方向性字数引导），重写后仍偏差大则不再截断，由渲染层调槽位/字号兜底。
+      // 字数统计用 countContentChars：完整剥离 ::: 控件块（含图表数据行等），反映真实文字体积
       const wordLimit = Math.max(40, Math.round(slot.estHeight * 4.5))
-      const cleanLen = (t: string): number =>
-        t.split('\n').filter((l) => !l.trim().startsWith(':::')).join('').replace(/\s+/g, '').length
-      const ratio = content ? cleanLen(content) / wordLimit : 1
-      if (content && (ratio > 1.15 || ratio < 0.8)) {
+      const len = content ? countContentChars(content) : 0
+      const ratio = content ? len / wordLimit : 1
+      // 纯控件槽位（如 notice 的 :::info、stats 的 :::stat）：字数为 0 是合法形态，体积由渲染层实测适配，不退稿
+      const pureWidget = len === 0 && (content?.includes(':::') ?? false)
+      let retried = false
+      if (content && !pureWidget && (ratio > 1.15 || ratio < 0.8)) {
+        retried = true // 只要发起过退稿重写就记录（质量报告展示「重试了」）
         const tooLong = ratio > 1.15
         try {
           layout.updateSlot(slot.id, { status: 'generating' })
@@ -439,8 +445,8 @@ function App(): React.JSX.Element {
               window.briefy!.generateSlot(
                 retryId,
                 tooLong
-                  ? `${slot.prompt}\n\n【退稿重写】你上一稿写了 ${cleanLen(content)} 字，超出目标 ${wordLimit} 字较多被主编退稿。这次控制在 ${wordLimit} 字左右（上下浮动不超过 15%）：保留最重要的信息，删除次要细节与重复修饰。`
-                  : `${slot.prompt}\n\n【退稿重写】你上一稿只写了 ${cleanLen(content)} 字，距目标 ${wordLimit} 字差距较大被主编退稿。这次写到 ${wordLimit} 字左右（上下浮动不超过 15%）：补充具体细节、数据与背景，展开论述，不要空洞凑字。`,
+                  ? `${slot.prompt}\n\n【退稿重写】你上一稿写了 ${len} 字，超出目标 ${wordLimit} 字较多被主编退稿。这次控制在 ${wordLimit} 字左右（上下浮动不超过 15%）：保留最重要的信息，删除次要细节与重复修饰。`
+                  : `${slot.prompt}\n\n【退稿重写】你上一稿只写了 ${len} 字，距目标 ${wordLimit} 字差距较大被主编退稿。这次写到 ${wordLimit} 字左右（上下浮动不超过 15%）：补充具体细节、数据与背景，展开论述，不要空洞凑字。`,
                 resolveRoleName(slot),
                 slot.kind,
                 slot.tools ?? ['getCurrentTime'],
@@ -461,13 +467,50 @@ function App(): React.JSX.Element {
         }
         // 重写后仍偏差大：不砍内容不强缩——超限交给渲染层放宽槽位兜底，太短交给渲染层增大字号填充
       }
-      layout.updateSlot(slot.id, { content: content ?? '（生成失败：空响应）', status: 'done' })
+      layout.updateSlot(slot.id, {
+        content: content ?? '（生成失败：空响应）',
+        status: 'done',
+        ...(retried ? { rewriteCount: (slot.rewriteCount ?? 0) + 1 } : {})
+      })
     } finally {
       inFlightRef.current.delete(generationId)
     }
   }
 
   /** 生成单个槽位（属性面板"生成此槽位"） */
+  /** 收集并显示质量报告卡：生成完成时自动弹出；卡内「刷新」手动重取最新状态（含仍在生成的槽位） */
+  const collectReport = (reviewFixedCount: number): void => {
+    try {
+      const doc = (window as unknown as { __briefyGetDoc?: () => LayoutDoc }).__briefyGetDoc?.() ?? layout.doc
+      const slots = doc.pages.flatMap((p) => p.slots)
+      const usage = (window as unknown as { __briefyUsage?: { promptTokens: number; completionTokens: number; totalTokens: number } }).__briefyUsage
+      setQualityReport({
+        rows: slots.map((s) => {
+          const len = countContentChars(s.content ?? '')
+          const limit = Math.max(40, Math.round(s.estHeight * 4.5))
+          return {
+            role: resolveRoleName(s, settings?.customRoles),
+            status: s.status,
+            len,
+            limit,
+            ok:
+              s.status !== 'done'
+                ? null
+                : len === 0 && (s.content ?? '').includes(':::')
+                  ? true // 纯控件槽位（如 notice 的 :::info）：合法形态，不算偏差
+                  : len >= limit * 0.8 && len <= limit * 1.15,
+            hasSource: (s.sources?.length ?? 0) > 0,
+            rewrites: s.rewriteCount ?? 0
+          }
+        }),
+        usage,
+        reviewFixed: reviewFixedCount
+      })
+    } catch {
+      // 报告失败不影响成品
+    }
+  }
+
   const generateOne = async (slot: Slot, index: number): Promise<void> => {
     if (!window.briefy || generating) return
     setGenerating(true)
@@ -602,29 +645,7 @@ function App(): React.JSX.Element {
       }
 
       // ---- 质量报告卡（ROADMAP 反馈：让改进可见）----
-      try {
-        const doc = (window as unknown as { __briefyGetDoc?: () => ReturnType<() => LayoutDoc> }).__briefyGetDoc?.() ?? layout.doc
-        const slots = doc.pages.flatMap((p: LayoutDoc['pages'][number]) => p.slots)
-        const usage = (window as unknown as { __briefyUsage?: { promptTokens: number; completionTokens: number; totalTokens: number } }).__briefyUsage
-        setQualityReport({
-          rows: slots.map((s) => {
-            const len = (s.content ?? '').split('\n').filter((l) => !l.trim().startsWith(':::')).join('').replace(/\s+/g, '').length
-            const limit = Math.max(40, Math.round(s.estHeight * 4.5))
-            return {
-              role: resolveRoleName(s, settings?.customRoles),
-              status: s.status,
-              len,
-              limit,
-              ok: s.status !== 'done' ? null : len >= limit * 0.8 && len <= limit * 1.15,
-              hasSource: (s.sources?.length ?? 0) > 0
-            }
-          }),
-          usage,
-          reviewFixed
-        })
-      } catch {
-        // 报告失败不影响成品
-      }
+      collectReport(reviewFixed)
     } finally {
       cancelRef.current = false
       setPhase(null)
@@ -1059,9 +1080,10 @@ function App(): React.JSX.Element {
           onSelect={layout.setCurrentPageId}
           onAdd={layout.addPage}
           onRemove={layout.removePage}
+          onMove={layout.movePage}
         />
 
-        <StatusBar version="0.15.0" hasApiKey={hasApiKey} phase={phase} />
+        <StatusBar version="0.24.0" hasApiKey={hasApiKey} phase={phase} />
 
         {/* AI 工作台浮动面板：实时展示流式输出（心跳改进：可直读内容） */}
         {generating && heartbeat !== null && (
@@ -1099,6 +1121,7 @@ function App(): React.JSX.Element {
                       <th style={{ padding: '4px 6px' }}>槽位</th>
                       <th style={{ padding: '4px 6px' }}>状态</th>
                       <th style={{ padding: '4px 6px' }}>字数/上限</th>
+                      <th style={{ padding: '4px 6px' }}>重写</th>
                       <th style={{ padding: '4px 6px' }}>来源</th>
                     </tr>
                   </thead>
@@ -1112,12 +1135,13 @@ function App(): React.JSX.Element {
                         <td style={{ padding: '4px 6px' }}>
                           {r.status === 'done' ? (
                             <span style={{ color: r.ok ? tokens.colorPaletteGreenForeground1 : tokens.colorPaletteRedForeground1 }}>
-                              {r.len}/{r.limit} {r.ok ? '✓' : '偏差大'}
+                              {r.len === 0 && r.ok ? '控件' : `${r.len}/${r.limit}`} {r.ok ? '✓' : '偏差大'}
                             </span>
                           ) : (
                             '—'
                           )}
                         </td>
+                        <td style={{ padding: '4px 6px' }}>{r.rewrites ? `×${r.rewrites}` : '—'}</td>
                         <td style={{ padding: '4px 6px' }}>{r.hasSource ? '✓' : '—'}</td>
                       </tr>
                     ))}
@@ -1134,6 +1158,9 @@ function App(): React.JSX.Element {
                 </div>
               </DialogContent>
               <DialogActions>
+                <Button icon={<ArrowClockwiseRegular />} onClick={() => collectReport(qualityReport?.reviewFixed ?? 0)}>
+                  刷新
+                </Button>
                 <DialogTrigger disableButtonEnhancement>
                   <Button appearance="primary">好的</Button>
                 </DialogTrigger>

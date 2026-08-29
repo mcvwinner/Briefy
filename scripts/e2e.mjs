@@ -116,6 +116,23 @@ if (Date.now() >= deadline) fail('总超时：生成未在时限内完成')
 
 // ---- 4. 统计结果 + 质量报告（ROADMAP Q5 最小层） ----
 const result = await cdp.evalJs(`(() => {
+  // 字数统计与 src/shared/parse.ts 的 countContentChars 同口径（页面上下文内联实现）
+  const countContentChars = (content) => {
+    let inBlock = false
+    let count = 0
+    for (const raw of content.split('\\n')) {
+      const line = raw.trim()
+      if (line.startsWith(':::')) {
+        const singleLine = /^:::\\w+\\s*\\{/.test(line)
+        if (inBlock) inBlock = singleLine ? false : line !== ':::'
+        else inBlock = !singleLine
+        continue
+      }
+      if (inBlock) continue
+      count += raw.replace(/\\s+/g, '').length
+    }
+    return count
+  }
   const doc = window.__briefyGetDoc()
   const slots = doc.pages.flatMap(p => p.slots)
   return {
@@ -124,7 +141,8 @@ const result = await cdp.evalJs(`(() => {
     error: slots.filter(s => s.status === 'error').map(s => ({ role: s.role, msg: (s.content ?? '').slice(0, 200) })),
     quality: slots.filter(s => s.status === 'done').map(s => ({
       role: s.role,
-      len: (s.content ?? '').replace(/\\s+/g, '').length,
+      // 字数统计与渲染层 countContentChars 同口径：完整剥离 ::: 控件块（含图表数据行），只计正文文字
+      len: countContentChars(s.content ?? ''),
       limit: Math.round(s.estHeight * 4.5),
       hasSource: (s.sources?.length ?? 0) > 0,
       content: s.content ?? ''
@@ -155,11 +173,12 @@ function similarity(a, b) {
 
 const q = result.quality
 const issues = []
-// 空内容
-for (const s of q) if (s.len === 0) issues.push(`[FAIL] ${s.role}：内容为空`)
-// 字数偏差检查（可接受区间 80%~115%，区间外交给渲染层字号/槽位微调，仅 WARN 不 FAIL）
+// 空内容（纯控件槽位字数为 0 是合法形态，不算空）
+for (const s of q) if (s.len === 0 && !s.content.includes(':::')) issues.push(`[FAIL] ${s.role}：内容为空`)
+// 字数偏差检查（可接受区间 80%~115%，区间外交给渲染层字号/槽位微调，仅 WARN 不 FAIL；纯控件槽位跳过）
 for (const s of q) if (s.len > s.limit * 1.15) issues.push(`[WARN] ${s.role}：字数 ${s.len} 超目标 ${s.limit}（超 15%）`)
-for (const s of q) if (s.len < s.limit * 0.8) issues.push(`[WARN] ${s.role}：字数 ${s.len} 不足目标 ${s.limit} 的 80%`)
+for (const s of q) if (s.len < s.limit * 0.8 && !(s.len === 0 && s.content.includes(':::')))
+  issues.push(`[WARN] ${s.role}：字数 ${s.len} 不足目标 ${s.limit} 的 80%`)
 // 槽间相似度粗检（两两比对，> 0.35 视为疑似重复）
 for (let i = 0; i < q.length; i++) {
   for (let j = i + 1; j < q.length; j++) {

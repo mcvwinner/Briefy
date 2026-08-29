@@ -62,4 +62,20 @@ assert(tl[0].type === 'widget' && tl[0].params.items.includes('15:00|收盘'), '
   assert(!r2.truncated && r2.text === '短文本', '未超限原样返回')
 }
 
+// ---- countContentChars：控件块剥离计字（体积协调口径） ----
+{
+  const { countContentChars } = await import('../src/shared/parse.ts')
+  // 多行块（:::chart 开块，块内数据行，::: 闭合）全部不计
+  const multi = ['正文三十个字左右的一段话用于验证统计口径是否正确。', ':::chart', '标签一|123', '标签二|456', ':::', '尾部一段话。'].join('\n')
+  const c1 = countContentChars(multi)
+  assert(!c1.toString().includes('0'), '有正文时字数不为零')
+  assert(c1 === 31, `多行控件块内数据行不计入（期望 31，实际 ${c1}）`)
+  // 单行控件（带 {} 参数）不开块，后续正文正常计入
+  const single = [':::stat{value:"42" label:"指标"}', '统计之后的正文文字。'].join('\n')
+  assert(countContentChars(single) === 10, `单行控件后续正文计入（期望 10，实际 ${countContentChars(single)}）`)
+  // 纯文字
+  assert(countContentChars('只有文字。') === 5, '纯文字计数')
+  assert(countContentChars('') === 0, '空内容为零')
+}
+
 console.log('✅ 控件协议解析全部断言通过')

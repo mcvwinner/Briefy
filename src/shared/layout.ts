@@ -49,6 +49,8 @@ export interface Slot {
   status: SlotStatus
   /** AI 内容超出预估高度的延展量（mm），生成后写回 */
   overflow?: number
+  /** 退稿重写次数（长度协调触发；质量报告展示） */
+  rewriteCount?: number
 }
 
 /** 一页 A4：槽位声明表 */
