@@ -41,25 +41,31 @@ export function useLayout(prefs?: LayoutPrefs) {
     return paginate([{ id: pages[0]?.id ?? crypto.randomUUID(), slots: flat }], geo)
   }, [geo])
 
-  /** 添加槽位：选角色 + 宽度模式，自动流式排布 + 自动分页。
+  /** 添加槽位：选角色 + 宽度模式，自动流式排布 + 自动分页（手动模式下直接放入当前页不重排）。
    *  分页可能把新槽位挤到新页，添加后自动切到它实际所在的页并选中（否则用户以为没生效） */
   const addSlot = useCallback(
-    (pageId: string, role: SlotRole, widthMode: WidthMode, prompt = ''): void => {
+    (pageId: string, role: SlotRole, widthMode: WidthMode, prompt = '', customRoleName?: string): void => {
       const region = { ...regionFor(widthMode, geo), y: geo.marginMM }
       const slot = createSlot(role, region, DEFAULT_SLOT_HEIGHT[role])
       if (prompt) slot.prompt = prompt
-      // 单次 setDoc：摊平重排（贪心装满，避免碎片空白页）
+      if (customRoleName) slot.customRoleName = customRoleName
+      // 单次 setDoc：摊平重排（贪心装满，避免碎片空白页）；手动模式直接追加，位置由用户拖拽调整
+      if (doc.layoutMode === 'manual') {
+        updatePage(pageId, (page) => ({ ...page, slots: [...page.slots, slot] }))
+        setSelectedSlotId(slot.id)
+        return
+      }
       const pages = doc.pages.map((p) =>
         p.id === pageId ? { ...p, slots: [...p.slots, slot] } : p
       )
       const nextPages = repaginateAll(pages)
-      setDoc({ ...doc, pages: nextPages })
+      setDoc({ ...doc, layoutMode: 'auto', pages: nextPages })
       // 定位新槽位实际所在页（可能因溢出被分到新页）并选中
       const target = nextPages.find((p) => p.slots.some((s) => s.id === slot.id))
       if (target) setCurrentPageId(target.id)
       setSelectedSlotId(slot.id)
     },
-    [doc, geo, repaginateAll]
+    [doc, geo, repaginateAll, updatePage]
   )
 
   /** 更新槽位（全文档按 slotId 定位）：生成期间溢出重排可能把槽位挪页，
@@ -75,11 +81,18 @@ export function useLayout(prefs?: LayoutPrefs) {
     }))
   }, [])
 
-  /** 改宽度模式：重推导 region + 重新流式排布 + 自动分页。
+  /** 改宽度模式：重推导 region + 重新流式排布 + 自动分页（手动模式下只改 region 不重排）。
    *  宽度改变可能引发分页移动，改后自动切到该槽位实际所在的页 */
   const setSlotWidth = useCallback(
     (pageId: string, slotId: string, widthMode: WidthMode): void => {
       const region = regionFor(widthMode, geo)
+      if (doc.layoutMode === 'manual') {
+        updatePage(pageId, (page) => ({
+          ...page,
+          slots: page.slots.map((s) => (s.id === slotId ? { ...s, region: { ...s.region, ...region } } : s))
+        }))
+        return
+      }
       const pages = doc.pages.map((p) => {
         if (p.id !== pageId) return p
         const slots = p.slots.map((s) =>
@@ -92,11 +105,11 @@ export function useLayout(prefs?: LayoutPrefs) {
       const target = nextPages.find((p) => p.slots.some((s) => s.id === slotId))
       if (target) setCurrentPageId(target.id)
     },
-    [doc, geo, repaginateAll]
+    [doc, geo, repaginateAll, updatePage]
   )
 
-  /** 槽位实际渲染高度超出预估时回写 overflow（PageView 测量触发），
-   *  摊平重排贪心装满：内容总量装得下 N 页就仍排 N 页，不再产生碎片空白页 */
+  /** 槽位实际渲染高度超出预估时回写 overflow（PageView 测量触发）。
+   *  自动模式：摊平重排贪心装满；手动模式：只加 overflow 拉高本槽，不动其他槽位 */
   const growSlotOverflow = useCallback(
     (slotId: string, deltaMm: number): void => {
       const pages = doc.pages.map((p) => {
@@ -106,6 +119,10 @@ export function useLayout(prefs?: LayoutPrefs) {
         )
         return { ...p, slots }
       })
+      if (doc.layoutMode === 'manual') {
+        setDoc({ ...doc, pages })
+        return
+      }
       const nextPages = repaginateAll(pages)
       setDoc({ ...doc, pages: nextPages })
       // 当前页可能被合并：失效时回退到第一页
@@ -116,15 +133,82 @@ export function useLayout(prefs?: LayoutPrefs) {
     [doc, currentPageId, geo, repaginateAll]
   )
 
+  /** 切换布局模式：manual = 固化当前自动排布结果（region.y 已含排布坐标），之后用户自由拖拽；
+   *  auto = 回到流式排布并重新分页（手动位置放弃） */
+  const setMode = useCallback(
+    (mode: 'auto' | 'manual'): void => {
+      if (mode === doc.layoutMode) return
+      if (mode === 'auto') {
+        const nextPages = repaginateAll(doc.pages)
+        setDoc({ ...doc, layoutMode: 'auto', pages: nextPages })
+        if (!nextPages.some((p) => p.id === currentPageId) && nextPages[0]) {
+          setCurrentPageId(nextPages[0].id)
+        }
+        return
+      }
+      setDoc({ ...doc, layoutMode: 'manual' })
+    },
+    [doc, currentPageId, repaginateAll]
+  )
+
+  /** 手动模式拖拽移动：绝对定位 x/y；拖出本页底部 → 掉到下一页（无则新建）顶部同 x 处 */
+  const moveSlot = useCallback(
+    (slotId: string, x: number, y: number): void => {
+      const usable = geo.pageHeightMM - geo.marginMM
+      const idx = doc.pages.findIndex((p) => p.slots.some((s) => s.id === slotId))
+      if (idx < 0) return
+      const slot = doc.pages[idx].slots.find((s) => s.id === slotId)
+      if (!slot) return
+      const h = slot.estHeight + (slot.overflow ?? 0)
+      const crossPage = y + h > usable
+      if (!crossPage) {
+        updateSlot(slotId, { region: { ...slot.region, x, y } })
+        return
+      }
+      // 跨页：移入下一页（必要时新建）顶部同 x 位置
+      const pages = [...doc.pages]
+      if (!pages[idx + 1]) pages.push({ id: crypto.randomUUID(), slots: [] })
+      const nextPages = pages.map((p, i) => {
+        if (i === idx) return { ...p, slots: p.slots.filter((s) => s.id !== slotId) }
+        if (i === idx + 1)
+          return { ...p, slots: [...p.slots, { ...slot, region: { ...slot.region, x, y: geo.marginMM } }] }
+        return p
+      })
+      setDoc({ ...doc, pages: nextPages })
+      setCurrentPageId(pages[idx + 1].id)
+    },
+    [doc, geo, updateSlot]
+  )
+
+  /** 手动模式拖角缩放：改宽度/高度，钳制在页面物理范围内 */
+  const resizeSlot = useCallback(
+    (slotId: string, width: number, estHeight: number): void => {
+      const slot = doc.pages.flatMap((p) => p.slots).find((s) => s.id === slotId)
+      if (!slot) return
+      const maxW = 210 - geo.marginMM * 2
+      const w = Math.min(maxW, Math.max(40, Math.round(width)))
+      const x = Math.min(210 - geo.marginMM - w, Math.max(geo.marginMM, slot.region.x))
+      const h = Math.min(geo.pageHeightMM - geo.marginMM * 2, Math.max(15, Math.round(estHeight)))
+      // 拖角重新定高后 overflow 清零，字号微调按新高度重新收敛
+      updateSlot(slotId, { region: { ...slot.region, x, width: w }, estHeight: h, overflow: 0 })
+    },
+    [doc, geo, updateSlot]
+  )
+
   const removeSlot = useCallback(
     (pageId: string, slotId: string): void => {
+      if (doc.layoutMode === 'manual') {
+        updatePage(pageId, (page) => ({ ...page, slots: page.slots.filter((s) => s.id !== slotId) }))
+        setSelectedSlotId(null)
+        return
+      }
       updatePage(pageId, (page) => {
         const slots = flowSlots(page.slots.filter((s) => s.id !== slotId))
         return { ...page, slots }
       })
       setSelectedSlotId(null)
     },
-    [updatePage]
+    [doc.layoutMode, updatePage]
   )
 
   const addPage = useCallback((): void => {
@@ -192,6 +276,9 @@ export function useLayout(prefs?: LayoutPrefs) {
     setSlotWidth,
     removeSlot,
     growSlotOverflow,
+    setMode,
+    moveSlot,
+    resizeSlot,
     addPage,
     removePage,
     newDoc,

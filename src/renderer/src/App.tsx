@@ -847,6 +847,16 @@ function App(): React.JSX.Element {
                       {ROLE_DEFS[role].name}
                     </MenuItem>
                   ))}
+                <MenuDivider />
+                {(settings?.customRoles?.length ?? 0) > 0 &&
+                  (settings?.customRoles ?? []).map((c) => (
+                    <MenuItem
+                      key={c.name}
+                      onClick={() => layout.addSlot(layout.currentPageId, 'custom', 'full', '', c.name)}
+                    >
+                      {c.name}
+                    </MenuItem>
+                  ))}
               </MenuList>
             </MenuPopover>
           </Menu>
@@ -937,11 +947,27 @@ function App(): React.JSX.Element {
               </MenuList>
             </MenuPopover>
           </Menu>
+          <Tooltip
+            content={
+              layout.doc.layoutMode === 'manual'
+                ? '当前：手动布局——拖拽移动槽位、拖右下角缩放；点此回到自动排布'
+                : '切换到手动布局：像 Word 调图片一样自由拖动槽位位置、拖角缩放大小（当前自动排布位置会固化）'
+            }
+            relationship="description"
+          >
+            <ToolbarButton
+              icon={<EditRegular />}
+              appearance={layout.doc.layoutMode === 'manual' ? 'primary' : undefined}
+              onClick={() => layout.setMode(layout.doc.layoutMode === 'manual' ? 'auto' : 'manual')}
+            >
+              {layout.doc.layoutMode === 'manual' ? '手动布局' : '自动排布'}
+            </ToolbarButton>
+          </Tooltip>
           <Tooltip content={generating ? `${phase ?? '生成中'}·点击终止全部任务` : '让 AI 填充全部槽位：按各槽位的角色与提示词并行写作；可在设置中配置模型与信息源'} relationship="description">
             <ToolbarButton
               icon={<WandRegular />}
               disabled={!hasApiKey}
-              appearance={hasApiKey ? 'primary' : undefined}
+              appearance={generating ? undefined : hasApiKey ? 'primary' : undefined}
               onClick={() => void generateAll()}
             >
               {generating ? '终止' : '生成'}
@@ -977,6 +1003,9 @@ function App(): React.JSX.Element {
                   selectedSlotId={layout.selectedSlotId}
                   onSelectSlot={layout.selectSlot}
                   onOverflow={layout.growSlotOverflow}
+                  manual={layout.doc.layoutMode === 'manual'}
+                  onMoveSlot={layout.moveSlot}
+                  onResizeSlot={layout.resizeSlot}
                   prefs={settings?.layout}
                   customRoles={settings?.customRoles}
                   docTitle={layout.doc.title}

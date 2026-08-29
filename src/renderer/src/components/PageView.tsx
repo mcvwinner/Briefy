@@ -194,6 +194,18 @@ const useStyles = makeStyles({
     fontSize: tokens.fontSizeBase200,
     color: tokens.colorPaletteRedForeground1,
     pointerEvents: 'none'
+  },
+  resizeHandle: {
+    position: 'absolute',
+    bottom: '-5px',
+    right: '-5px',
+    width: '10px',
+    height: '10px',
+    backgroundColor: tokens.colorBrandBackground2,
+    border: `1px solid ${tokens.colorBrandStroke1}`,
+    borderRadius: tokens.borderRadiusSmall,
+    cursor: 'nwse-resize',
+    touchAction: 'none'
   }
 })
 
@@ -203,6 +215,8 @@ function SlotBox({
   slot,
   roleName,
   selected,
+  fillHeight,
+  onResizeStart,
   onPointerDown,
   onOverflow,
   children
@@ -210,6 +224,10 @@ function SlotBox({
   slot: Slot
   roleName: string
   selected: boolean
+  /** 手动布局：外层已定宽高，槽位填满容器 */
+  fillHeight?: boolean
+  /** 手动布局：拖角缩放手柄（仅选中时传入） */
+  onResizeStart?: (e: React.PointerEvent) => void
   onPointerDown: (e: React.PointerEvent) => void
   onOverflow?: (slotId: string, deltaMm: number) => void
   children: ReactNode
@@ -228,11 +246,12 @@ function SlotBox({
     growingRef.current = false
     lockedRef.current = false
   }, [slot.content])
-  // 每次渲染后测量（无依赖数组）：内容/字号变化都重测；达标时不触发 setState，自然收敛
+  // 每次渲染后测量（无依赖数组）：内容/字号变化都重测；达标时不触发 setState，自然收敛。
+  // 用 scrollHeight：自动模式（内容撑开）= offsetHeight；手动模式（高度固定+hidden）= 完整内容高
   useLayoutEffect(() => {
     const el = ref.current
     if (!el) return
-    const actualMm = pxToMm(el.offsetHeight)
+    const actualMm = pxToMm(el.scrollHeight)
     const limit = slot.estHeight + (slot.overflow ?? 0)
     if (actualMm > limit + 1) {
       if (growingRef.current) {
@@ -258,13 +277,17 @@ function SlotBox({
       ref={ref}
       className={`${styles.slot} ${selected ? styles.slotSelected : ''} ${hovered ? styles.slotHover : ''}`}
       data-slot-id={slot.id}
-      style={{ ['--briefy-fit' as string]: fitScale } as React.CSSProperties}
+      style={{
+        ['--briefy-fit' as string]: fitScale,
+        ...(fillHeight ? { height: '100%', overflow: 'hidden' } : {})
+      } as React.CSSProperties}
       onPointerDown={onPointerDown}
       onPointerEnter={() => setHovered(true)}
       onPointerLeave={() => setHovered(false)}
     >
       <span className={styles.roleBadge}>{roleName}</span>
       {children}
+      {selected && onResizeStart && <span className={styles.resizeHandle} onPointerDown={onResizeStart} />}
     </div>
   )
 }
@@ -275,6 +298,12 @@ interface PageViewProps {
   onSelectSlot: (id: string | null) => void
   /** 槽位实际高度超出预估时回写（触发重新流式排布与分页）；打印视图不传 */
   onOverflow?: (slotId: string, deltaMm: number) => void
+  /** 手动布局模式：槽位绝对定位，可拖拽移动/缩放；缺省 = 自动流式排布 */
+  manual?: boolean
+  /** 手动模式：拖拽结束提交位置（跨页由上层处理） */
+  onMoveSlot?: (slotId: string, x: number, y: number) => void
+  /** 手动模式：拖角结束提交尺寸 */
+  onResizeSlot?: (slotId: string, width: number, estHeight: number) => void
   /** 版式偏好（页边距/栏距/字体/字号/行距/黑白优先/页眉页脚）；缺省 = 内置默认 */
   prefs?: LayoutPrefs
   /** 自定义角色库（徽章显示自定义角色名） */
@@ -302,10 +331,14 @@ function groupColumns(slots: Slot[]): { full: Slot[]; left: Slot[]; right: Slot[
   return { full, left, right }
 }
 
-/** A4 页面：全宽槽位纵向流 + 左右半栏真实并排 */
-function PageView({ page, selectedSlotId, onSelectSlot, onOverflow, prefs, customRoles, docTitle, pageNo, totalPages }: PageViewProps): React.JSX.Element {
+/** A4 页面：全宽槽位纵向流 + 左右半栏真实并排；手动布局模式下槽位绝对定位可拖拽 */
+function PageView({ page, selectedSlotId, onSelectSlot, onOverflow, manual, onMoveSlot, onResizeSlot, prefs, customRoles, docTitle, pageNo, totalPages }: PageViewProps): React.JSX.Element {
   const styles = useStyles()
   const { full, left, right } = groupColumns(page.slots)
+  const sheetRef = useRef<HTMLDivElement | null>(null)
+  /** 拖拽预览（未释放前仅视觉偏移，释放时一次性提交） */
+  const [preview, setPreview] = useState<null | { id: string; x: number; y: number; w: number; h: number }>(null)
+  const drag = useRef<null | { id: string; mode: 'move' | 'resize'; sx: number; sy: number; bx: number; by: number; bw: number; bh: number; last: { x: number; y: number; w: number; h: number } }>(null)
 
   // 版式偏好（缺省 = 现有稳定体验）；灰阶用 CSS filter，字体字号行距用内联样式
   const margin = prefs?.marginMM !== undefined ? `${Math.min(25, Math.max(10, prefs.marginMM))}mm` : '15mm'
@@ -316,6 +349,51 @@ function PageView({ page, selectedSlotId, onSelectSlot, onOverflow, prefs, custo
   const filter = prefs?.grayscale ? 'grayscale(1)' : undefined
   // 多栏正文流（ROADMAP Q3）：正文槽位文字分栏（1–3 栏，默认 1 = 单栏）
   const columns = prefs?.columns !== undefined ? Math.min(3, Math.max(1, Math.round(prefs.columns))) : 1
+  const marginNum = prefs?.marginMM !== undefined ? Math.min(25, Math.max(10, prefs.marginMM)) : 15
+
+  // ---- 手动布局：拖拽移动 / 拖角缩放（mm 与 px 互转基于 sheet 实际宽度）----
+  const mmPerPx = (): number => 210 / (sheetRef.current?.clientWidth ?? 794)
+  const startDrag = (e: React.PointerEvent, slot: Slot, mode: 'move' | 'resize'): void => {
+    if (!manual) return
+    e.preventDefault()
+    e.stopPropagation()
+    // 合成测试事件/指针已失效时 capture 会抛异常，忽略（不影响拖拽逻辑本身）
+    try {
+      ;(e.currentTarget as Element).setPointerCapture(e.pointerId)
+    } catch {
+      /* ignore */
+    }
+    const h = slot.estHeight + (slot.overflow ?? 0)
+    drag.current = { id: slot.id, mode, sx: e.clientX, sy: e.clientY, bx: slot.region.x, by: slot.region.y, bw: slot.region.width, bh: h, last: { x: slot.region.x, y: slot.region.y, w: slot.region.width, h } }
+    setPreview({ id: slot.id, x: slot.region.x, y: slot.region.y, w: slot.region.width, h })
+  }
+  const onDragMove = (e: React.PointerEvent): void => {
+    const d = drag.current
+    if (!d) return
+    const k = mmPerPx()
+    const dx = (e.clientX - d.sx) * k
+    const dy = (e.clientY - d.sy) * k
+    if (d.mode === 'move') {
+      d.last = { ...d.last, x: d.bx + dx, y: Math.max(marginNum, d.by + dy) }
+      setPreview((p) => p && { ...p, x: d.last.x, y: d.last.y })
+    } else {
+      d.last = { ...d.last, w: d.bw + dx, h: Math.max(15, d.bh + dy) }
+      setPreview((p) => p && { ...p, w: d.last.w, h: d.last.h })
+    }
+  }
+  const endDrag = (): void => {
+    const d = drag.current
+    drag.current = null
+    setPreview(null)
+    if (!d) return
+    // 用 ref 里的最新预览提交（state 闭包可能过期，同步事件序列中 setPreview 尚未提交渲染）
+    if (d.mode === 'move') {
+      const x = Math.min(210 - marginNum - 30, Math.max(marginNum, d.last.x))
+      onMoveSlot?.(d.id, x, d.last.y)
+    } else {
+      onResizeSlot?.(d.id, d.last.w, d.last.h)
+    }
+  }
 
   const renderSlot = (slot: Slot): React.JSX.Element => (
     <SlotBox
@@ -323,6 +401,8 @@ function PageView({ page, selectedSlotId, onSelectSlot, onOverflow, prefs, custo
       slot={slot}
       roleName={resolveRoleName(slot, customRoles)}
       selected={selectedSlotId === slot.id}
+      fillHeight={manual}
+      onResizeStart={manual && selectedSlotId === slot.id ? (e) => startDrag(e, slot, 'resize') : undefined}
       onPointerDown={() => onSelectSlot(slot.id)}
       onOverflow={onOverflow}
     >
@@ -395,12 +475,43 @@ function PageView({ page, selectedSlotId, onSelectSlot, onOverflow, prefs, custo
   // 无半栏槽位时的兜底：只渲染 full 流
   if (rows.length === 0) full.forEach((s) => rows.push(renderSlot(s)))
 
+  // 手动布局：槽位绝对定位（拖拽预览实时生效），跳过自动流式排布
+  const manualNodes: React.JSX.Element[] | null = manual
+    ? page.slots.map((slot) => {
+        const p = preview?.id === slot.id ? preview : null
+        const x = p?.x ?? slot.region.x
+        const y = p?.y ?? slot.region.y
+        const w = p?.w ?? slot.region.width
+        const h = p?.h ?? slot.estHeight + (slot.overflow ?? 0)
+        return (
+          <div
+            key={slot.id}
+            style={{
+              position: 'absolute',
+              left: `${x}mm`,
+              top: `${y}mm`,
+              width: `${w}mm`,
+              height: `${h}mm`,
+              touchAction: 'none',
+              zIndex: preview?.id === slot.id ? 10 : undefined
+            }}
+            onPointerDown={(e) => startDrag(e, slot, 'move')}
+            onPointerMove={onDragMove}
+            onPointerUp={endDrag}
+            onPointerCancel={endDrag}
+          >
+            {renderSlot(slot)}
+          </div>
+        )
+      })
+    : null
+
   // 页眉页脚（P6c）：绘制在页边距区（absolute），不占内容高、不影响分页计算
   const header = prefs?.header
   const today = new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' })
 
   return (
-    <div className={styles.sheet} style={{ padding: margin, filter }}>
+    <div className={styles.sheet} style={{ padding: margin, filter }} ref={sheetRef}>
       {header?.title && (docTitle || header.text) && (
         <div className={styles.sheetHeader} style={{ left: margin, right: margin }}>
           <span className={styles.sheetHeaderTitle}>{header.text?.trim() || docTitle}</span>
@@ -417,7 +528,7 @@ function PageView({ page, selectedSlotId, onSelectSlot, onOverflow, prefs, custo
           {totalPages !== undefined ? `第 ${pageNo} 页 · 共 ${totalPages} 页` : `第 ${pageNo} 页`}
         </div>
       )}
-      {rows}
+      {manualNodes ?? rows}
     </div>
   )
 }

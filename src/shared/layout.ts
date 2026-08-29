@@ -57,10 +57,15 @@ export interface Page {
   slots: Slot[]
 }
 
+/** 布局模式：auto = 流式自动排布+分页；manual = 用户拖拽定位（类似 Word 调图片） */
+export type LayoutMode = 'auto' | 'manual'
+
 /** 设计文档 v2（保存即 .briefy 文件内容） */
 export interface LayoutDoc {
   version: 2
   title: string
+  /** 布局模式；缺省 auto（旧文件兼容）。manual 下槽位用 region.y 绝对定位，不自动重排 */
+  layoutMode?: LayoutMode
   pages: Page[]
 }
 
@@ -301,6 +306,7 @@ export function parseLayoutDoc(raw: string, sourceLibrary: InfoSource[] = []): L
     return {
       version: 2,
       title: doc.title ?? '未命名报纸',
+      layoutMode: (doc as { layoutMode?: LayoutMode }).layoutMode === 'manual' ? 'manual' : 'auto',
       pages: (doc.pages as Page[]).map((p) => ({
         ...p,
         slots: (p.slots ?? []).map((s) => migrateSlotSources(s, sourceLibrary))
