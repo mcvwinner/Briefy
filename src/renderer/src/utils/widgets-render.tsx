@@ -252,7 +252,14 @@ export function renderContentNodes(nodes: ContentNode[]): ReactNode[] {
         )
       case 'widget': {
         const Renderer = WIDGET_RENDERERS[node.id]
-        return <Renderer key={i} params={node.params} />
+        // 控件自适应（v0.24.2）：zoom 联动槽位字号缩放系数 --briefy-fit（SlotBox 提供），
+        // 图片/图表/时间线等占版体积随字号一起缩放，估算不精确时由渲染层实测收敛兜底。
+        // 控件内部字号均为固定 pt，zoom 为单次缩放，无叠加问题
+        return (
+          <div key={i} style={{ zoom: 'var(--briefy-fit, 1)' }}>
+            <Renderer params={node.params} />
+          </div>
+        )
       }
     }
   })
