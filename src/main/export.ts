@@ -77,7 +77,12 @@ export function registerExportIpc(): void {
     } finally {
       notifyRenderReady = null
       pendingDoc = null
-      if (!printWin.isDestroyed()) printWin.destroy()
+      // 调试：BRIEFY_KEEP_PRINT=1 时保留并显示打印窗口（对比主窗口与打印渲染差异）
+      if (process.env.BRIEFY_KEEP_PRINT === '1' && !printWin.isDestroyed()) {
+        printWin.show()
+      } else if (!printWin.isDestroyed()) {
+        printWin.destroy()
+      }
     }
   })
 
