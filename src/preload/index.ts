@@ -18,7 +18,8 @@ const api = {
     slotIndex: number,
     sources: InfoSource[],
     estHeight: number,
-    overrides?: Partial<AiSettings>
+    overrides?: Partial<AiSettings>,
+    widthMM?: number
   ): Promise<{ content: string; usage?: { promptTokens: number; completionTokens: number; totalTokens: number } }> =>
     ipcRenderer.invoke(
       'ai:generate-slot',
@@ -31,7 +32,8 @@ const api = {
       slotIndex,
       sources,
       estHeight,
-      overrides
+      overrides,
+      widthMM
     ),
   cancelGeneration: (generationId: string): Promise<boolean> =>
     ipcRenderer.invoke('ai:cancel-generation', generationId),

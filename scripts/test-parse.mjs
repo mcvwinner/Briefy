@@ -77,36 +77,53 @@ assert(tl[0].type === 'widget' && tl[0].params.items.includes('15:00|收盘'), '
   assert(countContentChars('') === 0, '空内容为零')
 }
 
-// ---- estimateQuota：控件按占版面积折算等效字数（体积协调口径） ----
+// ---- estimateQuota：行数模型（v0.34.5 密度感知，与渲染层样式对齐） ----
 {
-  const { estimateQuota } = await import('../src/shared/parse.ts')
+  const { estimateQuota, quotaMetrics, slotWordCapacity } = await import('../src/shared/parse.ts')
+  // 用 quotaMetrics 推导期望值（模型调参时断言自动适配）；另含首段下沉 10mm + 槽内边距 4.2mm 固定项
+  const m = quotaMetrics({ widthMM: 87 }) // 缺省宽度 = 半栏（历史 4.5 字/mm 口径的来源）
+  const eq = (mm) => Math.round(mm * m.charsPerMm)
+  const paraMM = (chars) => Math.ceil(chars / m.charsPerLine) * m.lineHMM + 1.6 // 段行数取整 + 段距
+  const BASE = 4.2 // 槽位内容区 padding
+  const DROP = 10 // 首个文字段首字下沉
+
   const text = '正文三十个字左右的一段话用于验证体积折算的口径是否正确有效。' // 30 字
-  // 图形型控件：stat 15mm×4.5 = 68 等效字
+  // 图形型控件：stat 15mm 占版（宽度无关）按密度折算
   const s1 = estimateQuota(`${text}\n:::stat{value:"+1.2%" label:"沪指涨幅"}`)
-  assert(s1 === 30 + 68, `stat 折算 68 等效字（期望 ${30 + 68}，实际 ${s1}）`)
-  // timeline：2 事件 16mm×4.5 = 72
+  assert(s1 === eq(paraMM(30) + DROP + 4.2 + 15), `stat 折算（期望 ${eq(paraMM(30) + DROP + 4.2 + 15)}，实际 ${s1}）`)
+  // timeline：2 事件 16mm（无文字段 → 无下沉项）
   const s2 = estimateQuota(':::timeline{items:"09:30|高开; 10:15|拉升"}')
-  assert(s2 === 72, `timeline 2 事件折算 72（期望 72，实际 ${s2}）`)
-  // chart：3 数据点 49mm×4.5 = 221（40 + 3×3 = 49mm）
+  assert(s2 === eq(16 + 4.2), `timeline 2 事件（期望 ${eq(16 + 4.2)}，实际 ${s2}）`)
+  // chart：3 数据点 49mm
   const s3 = estimateQuota(':::chart{type:"bar" title:"图" data:"a|1; b|2; c|3"}')
-  assert(s3 === 221, `chart 3 数据点折算 221（期望 221，实际 ${s3}）`)
-  // 文字型控件 info：底高 10mm×4.5=45 + 参数文字（tone "warn" 4 字 + text 6 字）
+  assert(s3 === eq(49 + 4.2), `chart 3 数据点（期望 ${eq(49 + 4.2)}，实际 ${s3}）`)
+  // 文字型控件 info：底高 10mm + 参数文字一行
   const s4 = estimateQuota(':::info{tone:"warn" text:"数据截至发稿"}')
-  assert(s4 === 45 + 10, `info 底高+参数文字（期望 ${45 + 10}，实际 ${s4}）`)
+  assert(s4 === eq(10 + m.lineHMM + 4.2), `info 底高+参数（期望 ${eq(10 + m.lineHMM + 4.2)}，实际 ${s4}）`)
   // 多个控件叠加
   const s5 = estimateQuota(`${text}\n:::image{query:"meeting" caption:"现场"}\n:::stat{value:"5%" label:"涨幅"}`)
-  assert(s5 === 30 + 144 + 68, `多控件叠加（期望 ${30 + 144 + 68}，实际 ${s5}）`)
-  // 纯文字与空内容（兼容旧口径）
-  assert(estimateQuota(text) === 30, '纯文字计数不变')
+  assert(s5 === eq(paraMM(30) + DROP + 4.2 + 32 + 15), `多控件叠加（期望 ${eq(paraMM(30) + DROP + 4.2 + 32 + 15)}，实际 ${s5}）`)
+  // 空内容
   assert(estimateQuota('') === 0, '空内容为零')
-  // 表格按行折算（v0.34.3 修正）：6 行表（含分隔行）= 6×25=150 等效字，不再按字符低估 3 倍
+  // 段落行数取整冗余：30 字在半栏占 2 行（段尾半行 + 段距），估计 > 30 字面值——更贴近真实占版
+  assert(estimateQuota(text) > 30, `段尾半行冗余计入（实际 ${estimateQuota(text)}）`)
+  // 表格 6 行：6×5.5mm 折算，不随宽度变（表格占版物理高度与槽宽无关）
   const table6 = '| 名称 | 数值 |\n|---|---|\n| a | 1 |\n| b | 2 |\n| c | 3 |\n| d | 4 |'
-  assert(estimateQuota(table6) === 150, `表格 6 行折算 150（实际 ${estimateQuota(table6)}）`)
-  // 未闭合非标准块不再吞正文（v0.34.4 修复）：块后正文照常按文字计
-  // 构成：':::chart' 8 字符 + 两行数据（非 | 开头，按文字 7+7）+ 正文 22 = 44；旧逻辑把块后正文全吞掉
+  assert(estimateQuota(table6) === eq(33 + 4.2), `表格 6 行折算（期望 ${eq(33 + 4.2)}，实际 ${estimateQuota(table6)}）`)
+  // 未闭合非标准块不再吞正文（v0.34.4 修复保留）：44 字同段 → 2 行
   const unclosed = ':::chart\n标签一|123\n标签二|456\n未闭合块后的这段正文有十八个字左右用于验证。'
-  const uq = estimateQuota(unclosed)
-  assert(uq === 44, `未闭合块后正文照常计数（期望 44，实际 ${uq}）`)
+  assert(estimateQuota(unclosed) === eq(paraMM(44) + DROP + 4.2), `未闭合块后正文照常计数（期望 ${eq(paraMM(44) + DROP + 4.2)}，实际 ${estimateQuota(unclosed)}）`)
+
+  // ---- 密度感知容量（v0.34.5 核心）：字/mm 随宽度变化 ----
+  const capFull = slotWordCapacity(120, { widthMM: 180 }) // 全宽
+  const capHalf = slotWordCapacity(120, { widthMM: 87 }) // 半栏
+  const ratio = capFull / capHalf
+  assert(ratio > 1.9 && ratio < 2.1, `全宽容量应约为半栏 2 倍（实际 ${capFull}/${capHalf}=${ratio.toFixed(2)}）`)
+  // 多栏：180mm 双栏栏宽 ≈87mm → 容量回落到半栏水平（±5%）
+  const capCols = slotWordCapacity(120, { widthMM: 180, columns: 2 })
+  assert(Math.abs(capCols - capHalf) / capHalf < 0.05, `双栏容量回落半栏水平（实际 ${capCols} vs ${capHalf}）`)
+  // 下限保护
+  assert(slotWordCapacity(5) >= 40, '容量下限 40 字')
 }
 
 // ---- quotaRange：字数合格区间（v0.34.4：下限 85%，大槽位固定冗余） ----
@@ -120,14 +137,18 @@ assert(tl[0].type === 'widget' && tl[0].params.items.includes('15:00|收盘'), '
   assert(edge.min === 510 && edge.max === 690, `边界 600 字仍用比例（实际 ${edge.min}~${edge.max}）`)
 }
 
-// ---- widgetQuotaHint：控件等效成本提示词（与 estimateQuota 同口径，v0.34.3） ----
+// ---- widgetQuotaHint：控件等效成本提示词（与 estimateQuota 同口径，v0.34.3/0.34.5 密度感知） ----
 {
-  const { widgetQuotaHint } = await import('../src/shared/parse.ts')
-  const hint = widgetQuotaHint()
-  assert(hint.includes('配图≈144字'), 'image 32mm→144')
-  assert(hint.includes('二维码≈117字'), 'qrcode 26mm→117')
-  assert(hint.includes('图表≈180字'), 'chart 40mm→180')
-  assert(hint.includes('表格每行≈25字'), '表格行 5.5mm→25')
+  const { widgetQuotaHint, quotaMetrics } = await import('../src/shared/parse.ts')
+  const hintHalf = widgetQuotaHint({ widthMM: 87 })
+  // 半栏密度 ≈4.66：配图 32mm ≈149 字
+  assert(/配图≈1[0-9]{2}字/.test(hintHalf), `半栏配图成本合理（${(hintHalf.match(/配图≈(\d+)字/) ?? [])[1]}字）`)
+  // 全宽密度 ≈2 倍：配图成本同步放大（同一控件占同样 mm，但等效字口径随密度）
+  const hintFull = widgetQuotaHint({ widthMM: 180 })
+  const halfImg = Number((hintHalf.match(/配图≈(\d+)字/) ?? [])[1])
+  const fullImg = Number((hintFull.match(/配图≈(\d+)字/) ?? [])[1])
+  assert(fullImg > halfImg * 1.9, `全宽配图成本应约为半栏 2 倍（${fullImg} vs ${halfImg}）`)
+  void quotaMetrics
 }
 
 // ---- hasRichMedia：富媒体嗅探（增字号填充跳过依据，v0.34.2） ----

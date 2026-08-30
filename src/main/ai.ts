@@ -5,7 +5,7 @@ import type { IssueSummary } from '../shared/subscription'
 import { ROLE_DEFS, type SlotRole } from '../shared/layout'
 import { tavilySearch, tavilyImageSearch, fetchPageText } from './tools'
 import { buildWidgetPromptSection } from '../shared/widgets'
-import { widgetQuotaHint, hasRichMedia } from '../shared/parse'
+import { widgetQuotaHint, hasRichMedia, slotWordCapacity, type QuotaOptions } from '../shared/parse'
 
 /**
  * 流式请求超时控制（v0.30 用户需求）：只要还在输出就不中断——
@@ -157,7 +157,7 @@ function buildOutlineSection(context?: DocContext, currentIndex = -1): string {
 }
 
 /** 拼装单个槽位的生成提示词：全局规则 + 版面大纲 + 内容形式要求 + 用户提示词。
- *  settings 提供 P6b 增强；enabledTools 用于时效锚定（ROADMAP Q1） */
+ *  settings 提供 P6b 增强；enabledTools 用于时效锚定（ROADMAP Q1）；widthMM 用于密度感知容量（v0.34.5） */
 function buildSlotPrompt(
   prompt: string,
   role: string,
@@ -166,7 +166,8 @@ function buildSlotPrompt(
   index = -1,
   estHeight = 45,
   settings?: AiSettings,
-  enabledTools: ToolId[] = []
+  enabledTools: ToolId[] = [],
+  widthMM?: number
 ): string {
   const kindRules: Record<string, string> = {
     text: [
@@ -213,8 +214,10 @@ function buildSlotPrompt(
   const styleSection = settings?.stylePrompt?.trim()
     ? `本报风格（全局调性，所有内容需符合）：${settings.stylePrompt.trim()}`
     : ''
-  // 容量换算：经验值约 4.5 字/mm（报纸字号），给出硬性字数上限防溢出破版
-  const wordLimit = Math.max(40, Math.round(estHeight * 4.5))
+  // 容量换算（v0.34.5 密度感知）：字/mm 随槽位宽度变化（全宽 ≈9.6、半栏 ≈4.7），
+  // 旧恒定 4.5 字/mm 对全宽大槽位严重低估容量，是“超大槽位字数不够”的源头之一
+  const quotaOpts: QuotaOptions = { widthMM }
+  const wordLimit = slotWordCapacity(estHeight, quotaOpts)
   // 时效锚定（ROADMAP Q1）：未启用联网工具时禁止时效性事实陈述
   const canFetchFacts = enabledTools.includes('webSearch') || enabledTools.includes('fetchPage')
   const timelyAnchor = canFetchFacts
@@ -227,7 +230,7 @@ function buildSlotPrompt(
     roleSection,
     timelyAnchor,
     `控件建议：${ROLE_WIDGET_HINTS[roleKey] ?? '按栏目定位选用合适控件（见上方控件清单）'}`,
-    `要求：内容紧凑、信息密度高、符合报纸文风。全文总体积（含控件折算）严格控制在 ${wordLimit} 字等效以内——这是版面物理容量的硬性上限，超出会被裁切；宁可精炼勿冗长，写完即止。${widgetQuotaHint()}`,
+    `要求：内容紧凑、信息密度高、符合报纸文风。全文总体积（含控件折算）严格控制在 ${wordLimit} 字等效以内——这是版面物理容量的硬性上限，超出会被裁切；宁可精炼勿冗长，写完即止。${widgetQuotaHint(quotaOpts)}`,
     `内容形式：${kind === 'headline' ? headlineFormat : kindRules[kind] ?? kindRules.text}`,
     `槽位主题要求：${prompt}`,
     // 头条三段式是硬性格式约束，置于提示词末尾以最强权重（AI 对末尾指令遵循率最高）
@@ -264,7 +267,8 @@ export async function generateSlotContent(
   signal?: AbortSignal,
   estHeight = 45,
   onTick?: (delta: string) => void,
-  fileSources: FileSourceContent[] = []
+  fileSources: FileSourceContent[] = [],
+  widthMM?: number
 ): Promise<GenerateResult> {
   if (!settings.apiKey) throw new Error('未配置 API Key')
   if (!settings.model) throw new Error('未配置模型名')
@@ -286,7 +290,7 @@ export async function generateSlotContent(
     {
       role: 'user',
       content: [
-        buildSlotPrompt(prompt, role, kind, docContext, slotIndex, estHeight, settings, enabledTools),
+        buildSlotPrompt(prompt, role, kind, docContext, slotIndex, estHeight, settings, enabledTools, widthMM),
         // 信息源注入：AI 基于真实抓取内容写作，而非凭记忆
         ...(sourceContents.length > 0
           ? [

@@ -21,13 +21,59 @@ function splitCount(value?: string): number {
  *  此前表格按字符计数，6 行表只折算 ~11mm 而实际渲染 ≈32mm，低估 3 倍导致体积评估失真） */
 const TABLE_ROW_MM = 5.5
 
+/** 段落间距（mm）：block-para margin-bottom 6px */
+const PARAGRAPH_GAP_MM = 1.6
+/** 小标题附加高度（mm）：block-heading 11pt 加粗 + 下边框 + 上下 margin */
+const HEADING_EXTRA_MM = 8
+/** 槽位内容区内边距（mm）：slotContent padding 8px 上下（v0.34.5 校准实测补充） */
+const SLOT_INNER_PAD_MM = 4.2
+/** 首段首字下沉附加高度（mm）：drop-cap 34pt 浮字占位（v0.34.5 校准实测补充，约 +10mm） */
+const DROP_CAP_MM = 10
+
+/**
+ * 体积估算的排版参数（v0.34.5）：与渲染层实际样式对齐。宽度是密度模型的核心——
+ * 旧口径恒定 4.5 字/mm 只对半栏宽度（~87mm）成立，全宽槽（180mm）实际密度 ~9.6 字/mm，
+ * 相差 2 倍，是"字数预测不能对应槽位大小"的主因。
+ */
+export interface QuotaOptions {
+  /** 槽位内容宽度 mm（全宽 180 / 半栏 ~87）；缺省 87（历史经验口径） */
+  widthMM?: number
+  /** 正文字号 pt（默认 10，范围 8–14） */
+  fontSizePt?: number
+  /** 正文行距（默认 1.5） */
+  lineHeight?: number
+  /** 分栏数（body 多栏流式，默认 1；分栏使每栏变窄、总高度约减半） */
+  columns?: number
+}
+
+/** 由排版参数推导密度指标：每行字数 / 行高 mm / 字每 mm */
+export function quotaMetrics(opts?: QuotaOptions): { charsPerLine: number; lineHMM: number; charsPerMm: number } {
+  const fontSizePx = (opts?.fontSizePt ?? 10) * (4 / 3)
+  const cols = Math.min(3, Math.max(1, Math.round(opts?.columns ?? 1)))
+  const COLUMN_GAP_MM = 6 // 渲染层 columnGap 6mm
+  const widthMM = Math.min(210, Math.max(20, opts?.widthMM ?? 87))
+  const colWidthMM = (widthMM - COLUMN_GAP_MM * (cols - 1)) / cols
+  const charsPerLine = Math.max(4, (colWidthMM * 3.7795) / fontSizePx)
+  const lineHMM = (fontSizePx * (opts?.lineHeight ?? 1.5)) / 3.7795
+  return { charsPerLine, lineHMM, charsPerMm: charsPerLine / lineHMM }
+}
+
+/**
+ * 槽位字数容量（v0.34.5）：estHeight mm 按实际排版密度折算成字数——
+ * 与 estimateQuota 同密度口径，替代旧 estHeight×4.5 恒定假设。
+ */
+export function slotWordCapacity(estHeightMM: number, opts?: QuotaOptions): number {
+  return Math.max(40, Math.round(estHeightMM * quotaMetrics(opts).charsPerMm))
+}
+
 /**
  * 控件/表格的等效字数成本说明（喂给 AI，v0.34.3）：生成时字数上限只算了总容量，
  * 不告知控件占版成本的话，AI 会在写满上限之外再插控件 → 实际体积超限 → 被迫缩字号。
- * 数字从 WIDGET_HEIGHT_MM 同源折算（高度mm×4.5字/mm），与 estimateQuota 评估口径严格一致。
+ * 数字从 WIDGET_HEIGHT_MM 同源折算（高度mm×密度），与 estimateQuota 评估口径严格一致。
  */
-export function widgetQuotaHint(): string {
-  const q = (mm: number): number => Math.round(mm * 4.5)
+export function widgetQuotaHint(opts?: QuotaOptions): string {
+  const perMm = quotaMetrics(opts).charsPerMm
+  const q = (mm: number): number => Math.round(mm * perMm)
   return [
     '字数上限指全文总体积（正文+控件折算）：若插入占版控件，需按以下等效字数从上限中扣除——',
     `配图≈${q(32)}字/张、二维码≈${q(26)}字/个、图表≈${q(40)}字+每个数据点≈${q(3)}字、统计卡≈${q(15)}字/个、时间线≈${q(8)}字/条、目录≈${q(10)}字/条、表格每行≈${q(5.5)}字；`,
@@ -36,40 +82,76 @@ export function widgetQuotaHint(): string {
 }
 
 /**
- * 统计内容的等效字数（体积协调口径）：正文文字照计；图形型控件按占版面积折算（高度mm×4.5字/mm），
- * 文字型控件（quote/info）参数文字照计并加底高——让字数重新反映槽位体积，控件不再"隐形"。
- * v0.34.4 口径对齐渲染层：仅可解析的单行控件按控件折算；无参 ::: 行按普通文字计（渲染层就是这样渲染的）。
- * 此前的"多行块容错"会吞掉未闭合块后的全部正文（AI 忘写 ::: 闭合时），导致估计≈0、被误判为空——已废弃。
+ * 统计内容的等效字数（体积协调口径，v0.34.5 行数模型）：
+ * 与渲染层 parseContent 同构解析（空行分段 / ## 小标题 / 可解析单行控件 / 表格行），按
+ * 「段字数 → 每行字数 → 行数（向上取整）→ 行高」逐段折算 mm——自然涵盖段落尾部半行、段距、
+ * 小标题附加高度的冗余。控件占版 mm 与宽度无关，按当前密度折算等效字数。
+ * 无参 ::: 行按普通文字计（渲染层就是段落，v0.34.4 口径，永不吞正文）。
  */
-export function estimateQuota(content: string): number {
-  const CHAR_PER_MM = 4.5
-  let total = 0
+export function estimateQuota(content: string, opts?: QuotaOptions): number {
+  if (!content.trim()) return 0
+  const { charsPerLine, lineHMM, charsPerMm } = quotaMetrics(opts)
+  let totalMM = 0
+  /** 当前段落累积的行（空行/控件/标题触发结算） */
+  let paraLines: string[] = []
+  /** 是否已过首段（首段首字下沉，占位更大） */
+  let firstTextParaSeen = false
+
+  const paraMM = (text: string): number => {
+    const chars = text.replace(/\s+/g, '').length
+    return chars === 0 ? 0 : Math.ceil(chars / charsPerLine) * lineHMM + PARAGRAPH_GAP_MM
+  }
+  const flushPara = (): void => {
+    if (paraLines.length === 0) return
+    // 段内区分表格行（| 开头，每行独立 5.5mm）与文字行（累积后按段折行）
+    const tableLines = paraLines.filter((l) => l.startsWith('|'))
+    const textBlock = paraLines.filter((l) => !l.startsWith('|')).join('')
+    let mm = tableLines.length * TABLE_ROW_MM + paraMM(textBlock)
+    // 首个文字段首字下沉（渲染层 drop-cap 34pt 浮字，实测约 +10mm）
+    if (!firstTextParaSeen && textBlock.trim()) {
+      firstTextParaSeen = true
+      mm += DROP_CAP_MM
+    }
+    totalMM += mm
+    paraLines = []
+  }
+
   for (const raw of content.split('\n')) {
     const line = raw.trim()
+    if (!line) {
+      flushPara()
+      continue
+    }
     if (line.startsWith(':::')) {
       const w = parseWidgetLine(line)
       if (w) {
+        flushPara()
         const est = WIDGET_HEIGHT_MM[w.id]
         if (est) {
-          total += Math.round(est(w.params) * CHAR_PER_MM)
+          totalMM += est(w.params) // 图形型控件：占版 mm（与宽度无关）
         } else {
-          // 文字型控件（quote/info）：底高 + 参数文字
+          // 文字型控件（quote/info）：底高 + 参数文字折行
           const base = w.id === 'quote' ? 12 : 10
-          total += Math.round(base * CHAR_PER_MM) + Object.values(w.params).join('').replace(/\s+/g, '').length
+          const chars = Object.values(w.params).join('').replace(/\s+/g, '').length
+          totalMM += base + Math.ceil(chars / charsPerLine) * lineHMM
         }
         continue
       }
-      // 无参 ::: 行：渲染层按普通段落文字渲染（parseContent 解析失败回落段落），估计同口径按文字计
+      // 无参 ::: 行：渲染层按普通段落文字渲染，估计同口径（落入段落缓冲）
     }
-    // 表格行按行折算（v0.34.3）：9pt 固定字号+内边距，行高 ≈5.5mm，与渲染实测一致；
-    // 按字符计数会低估 3 倍（| 名称 | 数值 | 去空白仅 ~8 字，渲染却是 5.5mm 高的一行）
-    if (line.startsWith('|')) {
-      total += Math.round(TABLE_ROW_MM * CHAR_PER_MM)
+    if (/^#{2,3}\s+/.test(line)) {
+      flushPara()
+      const text = line.replace(/^#{2,3}\s+/, '').replace(/\s+/g, '')
+      totalMM += Math.ceil(text.length / charsPerLine) * lineHMM + HEADING_EXTRA_MM
       continue
     }
-    total += raw.replace(/\s+/g, '').length
+    paraLines.push(line)
   }
-  return total
+  flushPara()
+  // 槽位内容区上下 padding（slotContent 8px×2）——框高的固定组成部分
+  totalMM += SLOT_INNER_PAD_MM
+
+  return Math.round(totalMM * charsPerMm)
 }
 
 /**

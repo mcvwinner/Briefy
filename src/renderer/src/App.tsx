@@ -53,13 +53,14 @@ import InputDialog from './components/InputDialog'
 import { useLayout } from './hooks/useLayout'
 import type { AiSettings, InfoSource, ThemeMode } from '../../shared/settings'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
+import type { LayoutPrefs } from '../../shared/settings'
 import type { LayoutDoc, Slot, SlotRole } from '../../shared/layout'
 import { ROLE_DEFS, resolveRoleName, reflowManualPage, resolveGeometry } from '../../shared/layout'
 import { PRESETS, buildDocFromPreset } from '../../shared/presets'
 import { toPresetSlots, fromPresetSlots, type UserPreset } from '../../shared/user-preset'
 import { setEagerImages } from './utils/widgets-render'
 // enforceLength（v0.20 引入的截断重组）在 v0.21 起不再被调用，函数与测试保留在 shared/parse.ts 备用
-import { countContentChars, estimateQuota, quotaRange } from '../../shared/parse'
+import { countContentChars, estimateQuota, quotaRange, slotWordCapacity, type QuotaOptions } from '../../shared/parse'
 import {
   buildIssueSummary,
   buildMemoryBlock,
@@ -84,7 +85,8 @@ declare global {
         slotIndex: number,
         sources: InfoSource[],
         estHeight: number,
-        overrides?: Partial<AiSettings>
+        overrides?: Partial<AiSettings>,
+        widthMM?: number
       ): Promise<{ content: string; usage?: { promptTokens: number; completionTokens: number; totalTokens: number } }>
       cancelGeneration(generationId: string): Promise<boolean>
       planIssue(
@@ -184,6 +186,16 @@ const useStyles = makeStyles({
 
 /** 打印/导出模式：URL 带 ?print=1 时为 true，只渲染纯净版面 */
 const PRINT_MODE = new URLSearchParams(window.location.search).has('print')
+
+/** 体积估算的排版参数（v0.34.5 密度感知）：槽位宽度 + 版式字号/行距/分栏（分栏仅 body 文字槽生效，与渲染层条件一致） */
+function quotaOptsFor(slot: Slot, layout?: LayoutPrefs): QuotaOptions {
+  return {
+    widthMM: slot.region.width,
+    fontSizePt: layout?.fontSizePt,
+    lineHeight: layout?.lineHeight,
+    columns: slot.role === 'body' && slot.kind === 'text' ? layout?.columns : undefined
+  }
+}
 
 /** AI 工作台浮动面板（心跳改进）：右下角实时展示流式输出，可直读内容、可终止 */
 const HB_POS_KEY = 'briefy-hb-pos'
@@ -466,21 +478,20 @@ function App(): React.JSX.Element {
         }
       }
       // ---- 长度协调（v0.22：槽位定字数；偏差小微调，偏差大退稿）----
-      // 可接受区间 80%~115%（用户约定）：区间内交给渲染层字号微调（少→增大字号，多→缩小字号/放宽槽位）；
-      // 区间外打回重写一次（带方向性字数引导），重写后仍偏差大则不再截断，由渲染层调槽位/字号兜底。
-      // 体积统计用 estimateQuota：正文文字 + 控件按占版面积折算等效字数（高度mm×4.5），反映槽位真实体积。
-      // 估算密度对不同排版（头条大字/数据小卡）天然不准，只做粗筛：仅极端偏差（超 2 倍/不足 40%）才退稿；
-      // 普通偏差交给渲染层字号/槽位自适应（缩放下限 70%/上限 125%，可覆盖约 1.8 倍体积差），实测收敛兜底
-      const wordLimit = Math.max(40, Math.round(slot.estHeight * 4.5))
-      const quota = content ? estimateQuota(content) : 0
-      const ratio = content ? quota / wordLimit : 1
+      // 合格区间 quotaRange（v0.34.4）：小槽位 85%~115%，大槽位（>600 字）固定字数冗余（-100/+150）。
+      // 容量与估计 v0.34.5 密度感知：字/mm 随槽位宽度/字号/行距/分栏变化，替代旧恒定 4.5 字/mm——
+      // 全宽槽实际密度约为半栏的 2 倍，旧口径对全宽大槽位严重低估容量，是"超大槽位字数不够"的源头。
+      const qOpts = quotaOptsFor(slot, settingsRef.current?.layout)
+      const wordLimit = slotWordCapacity(slot.estHeight, qOpts)
+      const quota = content ? estimateQuota(content, qOpts) : 0
+      const range = quotaRange(wordLimit)
       // 纯控件槽位（正文为 0）与自由创作槽（不限字数格式）是合法形态，不退稿
       const pureWidget =
         (content?.includes(':::') ?? false) && countContentChars(content ?? '') === 0
       let retried = false
-      if (content && slot.role !== 'free' && !pureWidget && (ratio > 2 || ratio < 0.4)) {
+      if (content && slot.role !== 'free' && !pureWidget && (quota > range.max || quota < range.min)) {
         retried = true // 只要发起过退稿重写就记录（质量报告展示「重试了」）
-        const tooLong = ratio > 1.15
+        const tooLong = quota > wordLimit
         try {
           layout.updateSlot(slot.id, { status: 'generating' })
           const retryId = crypto.randomUUID()
@@ -491,7 +502,7 @@ function App(): React.JSX.Element {
                 retryId,
                 tooLong
                   ? `${slot.prompt}\n\n【退稿重写】你上一稿体积约 ${quota} 字（含图表/配图折算），超出目标 ${wordLimit} 字太多被主编退稿。这次压缩到 ${wordLimit} 字左右：保留最重要的信息，删除次要细节与重复修饰。`
-                  : `${slot.prompt}\n\n【退稿重写】你上一稿体积约 ${quota} 字（含图表/配图折算），距目标 ${wordLimit} 字差距太大被主编退稿。这次写到 ${wordLimit} 字左右：补充具体细节、数据与背景，展开论述，不要空洞凑字。`,
+                  : `${slot.prompt}\n\n【退稿重写】你上一稿体积约 ${quota} 字（含图表/配图折算），距目标 ${wordLimit} 字差距太大（下限 ${range.min} 字）被主编退稿。这次写到 ${wordLimit} 字左右：补充具体细节、数据与背景，展开论述，不要空洞凑字。`,
                 resolveRoleName(slot),
                 slot.kind,
                 slot.tools ?? ['getCurrentTime'],
@@ -499,7 +510,8 @@ function App(): React.JSX.Element {
                 index,
                 slot.sources ?? [],
                 slot.estHeight,
-                overrides
+                overrides,
+                slot.region.width
               ),
               new Promise<never>((_, rej) => setTimeout(() => rej(new Error('重写超时（120s）')), 120_000))
             ])
@@ -547,8 +559,10 @@ function App(): React.JSX.Element {
       const usage = (window as unknown as { __briefyUsage?: { promptTokens: number; completionTokens: number; totalTokens: number } }).__briefyUsage
       setQualityReport({
         rows: slots.map((s) => {
-          const len = estimateQuota(s.content ?? '')
-          const limit = Math.max(40, Math.round(s.estHeight * 4.5))
+          // v0.34.5 密度感知：估计与容量同用槽位宽度/版式参数
+          const rOpts = quotaOptsFor(s, settingsRef.current?.layout)
+          const len = estimateQuota(s.content ?? '', rOpts)
+          const limit = slotWordCapacity(s.estHeight, rOpts)
           // 实测适配优先（SlotBox 收敛结果）：溢出才算失败；无实测（未渲染/刷新前）时用估算兑底（quotaRange 口径）
           const fit = slotFits[s.id]
           const range = quotaRange(limit)
@@ -825,17 +839,20 @@ function App(): React.JSX.Element {
     if (!window.briefy || group.length === 0) return
     const SEP = '═══PART═══'
     const totalEst = group.reduce((acc, g) => acc + g.slot.estHeight, 0)
+    // 接续组目标字数：同用密度容量（组内槽宽可能不同，取平均宽近似）
+    const avgWidth = group.reduce((acc, g) => acc + g.slot.region.width, 0) / group.length
+    const totalWords = slotWordCapacity(totalEst, quotaOptsFor({ ...group[0].slot, region: { ...group[0].slot.region, width: avgWidth } }, settingsRef.current?.layout))
     const partsDesc = group.map((g, i) => `第 ${i + 1} 部分（用于「${resolveRoleName(g.slot)}」栏）：${g.slot.prompt}`).join('\n')
     const prompt = [
       `以下需求原本拆分在 ${group.length} 个相邻版面栏位，请作为一篇连贯内容一次写完，再用分隔符切分。`,
       '写作规则：',
       `- 全文用单独一行 ${SEP} 作为分隔标记，恰好分成 ${group.length} 个部分，不多不少；`,
-      `- 各部分合计约 ${Math.round(totalEst * 4.5)} 字；各部分之间承接自然，但每部分可独立成段阅读；`,
+      `- 各部分合计约 ${totalWords} 字；各部分之间承接自然，但每部分可独立成段阅读；`,
       '- 内容分配：',
       partsDesc
     ].join('\n')
     for (const g of group) layout.updateSlot(g.slot.id, { status: 'generating' })
-    console.log(`[gen] 接续组生成开始（${group.length} 栏，目标约 ${Math.round(totalEst * 4.5)} 字）`)
+    console.log(`[gen] 接续组生成开始（${group.length} 栏，目标约 ${totalWords} 字）`)
     const generationId = crypto.randomUUID()
     inFlightRef.current.add(generationId)
     try {
@@ -850,7 +867,8 @@ function App(): React.JSX.Element {
           group[0].index,
           group[0].slot.sources ?? [],
           totalEst,
-          overrides
+          overrides,
+          avgWidth
         ),
         new Promise<never>((_, rej) => setTimeout(() => rej(new Error('接续组生成超时（300s）')), 300_000))
       ])

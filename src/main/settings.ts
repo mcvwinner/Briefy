@@ -96,7 +96,8 @@ export function registerSettingsIpc(): void {
       slotIndex: number,
       sources: InfoSource[],
       estHeight: number,
-      overrides?: Partial<AiSettings>
+      overrides?: Partial<AiSettings>,
+      widthMM?: number
     ) => {
       const settings = await readSettings()
       const controller = new AbortController()
@@ -141,7 +142,8 @@ export function registerSettingsIpc(): void {
           controller.signal,
           estHeight,
           (delta) => _event.sender.send('ai:heartbeat', generationId, delta),
-          fileSources
+          fileSources,
+          widthMM
         )
         // 配图闭环（ROADMAP Q3）：AI 给意图，系统用 Tavily 图搜回填真实 URL（失败不影响正文）
         const content = await resolveImageQueries(generated.content, settings.tavilyKey)
