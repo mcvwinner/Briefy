@@ -160,6 +160,8 @@ const result = await cdp.evalJs(`(() => {
         continue
       }
       if (blockLines) { blockLines.push(raw); continue }
+      // 表格行按行折算（v0.34.3 与 shared/parse.ts 同口径）：9pt 固定字号行高 ≈5.5mm
+      if (line.startsWith('|')) { total += Math.round(5.5 * CHAR_PER_MM); continue }
       total += raw.replace(/\\s+/g, '').length
     }
     closeBlock()

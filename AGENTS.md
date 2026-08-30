@@ -121,6 +121,8 @@
 
 - [x] 打印几何修复（v0.34.2：末页底侧截断根因=打印窗口 body UA 默认 8px margin 从未清零——水平挤出纸宽触发 Chrome 打印整体缩放(~0.99×)+垂直每页底推 2mm；修=main.css @page A4 margin0 + @media print body margin0 + JS 双保险；探针 probe-print-geo.mjs 实测 margin=0/纸面(0,0)/sheet 精确 210×297/PDF MediaBox 标准 A4；教训：屏幕 CSS mm 是 96dpi 固定换算，Windows 显示缩放让屏幕纸面"偏小"属正常；Griffel 哈希类名无法用 [class*="语义名"] 选择，探针须用 .print-page > div）
 
+- [x] 增字号填充考虑富媒体 + 字数上限口径修正 + 审稿富媒体感知（v0.34.3：hasRichMedia 嗅探（image/qrcode/chart 控件+Markdown 表格）→ 这类槽位跳过增字号填充只留白（zoom 联动放大图片会糊/图表占版失衡）；字数上限 prompt 告知控件等效成本（widgetQuotaHint 与 estimateQuota 同源折算：图144/码117/图180+14每点/表行25）；estimateQuota 表格行按 5.5mm/行折算修正原字符计数低估 3 倍；审稿 prompt 标注稿件媒体构成并检查图文一致性（describeMedia）；探针 probe-fit-rich.mjs 实测纯文字槽 fit=1.25 vs 图片槽 fit=1；全判断点盘点：缩小/增高以实测驱动天然准、收缩/质检自洽、唯审稿有缺口已补；教训：给 AI 的上限若不告知控件成本，AI 会写满上限再插控件 → 体积必然超）
+
 ## 7. P6 增强能力包计划（v0.12 起，已与用户对齐）
 
 原则：全部做成**设置可选项**，默认值 = 现有稳定体验；实验功能集中在"实验性"分区，稳定即转正并移除开关。

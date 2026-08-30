@@ -5,7 +5,7 @@ import type { Page, Slot } from '../../../shared/layout'
 import { resolveRoleName } from '../../../shared/layout'
 import type { CustomRole, LayoutPrefs } from '../../../shared/settings'
 import { renderInlineMarkdown } from '../utils/markdown'
-import { parseContent } from '../../../shared/parse'
+import { parseContent, hasRichMedia } from '../../../shared/parse'
 import { renderContentNodes } from '../utils/widgets-render'
 import { pxToMm } from '../utils/units'
 
@@ -287,7 +287,14 @@ function SlotBox({
         onOverflow(slot.id, Math.ceil(actualMm - limit))
         overflowing = true
       }
-    } else if (actualMm < limit - 3 && fitScale < 1.24 && !lockedRef.current) {
+    } else if (
+      actualMm < limit - 3 &&
+      fitScale < 1.24 &&
+      !lockedRef.current &&
+      // 富媒体槽位不增字号（v0.34.2 用户反馈）：图片/二维码/图表/表格随字号 zoom 联动放大，
+      // 图片变糊、图表占版失衡——这类槽位留白就留白，不做放大填充（缩小方向不受影响）
+      !hasRichMedia(slot.content)
+    ) {
       // 留白超过 3mm 才增字号（避免小留白抖动），步进 1.1，上限 125%
       growingRef.current = true
       setFitScale((s) => Math.min(1.25, s * 1.1))

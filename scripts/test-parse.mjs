@@ -100,6 +100,40 @@ assert(tl[0].type === 'widget' && tl[0].params.items.includes('15:00|收盘'), '
   // 纯文字与空内容（兼容旧口径）
   assert(estimateQuota(text) === 30, '纯文字计数不变')
   assert(estimateQuota('') === 0, '空内容为零')
+  // 表格按行折算（v0.34.3 修正）：6 行表（含分隔行）= 6×25=150 等效字，不再按字符低估 3 倍
+  const table6 = '| 名称 | 数值 |\n|---|---|\n| a | 1 |\n| b | 2 |\n| c | 3 |\n| d | 4 |'
+  assert(estimateQuota(table6) === 150, `表格 6 行折算 150（实际 ${estimateQuota(table6)}）`)
+  // 控件块内的表格行仍按块逻辑处理（chart 数据行用 | 分隔，不受表格折算影响）
+  const chartBlock = [':::chart', '标签一|123', '标签二|456', ':::'].join('\n')
+  const chartQuota = estimateQuota(chartBlock)
+  assert(chartQuota === 194, `非标准多行块按 40mm 底座+块内文字（期望 194，实际 ${chartQuota}）`)
+}
+
+// ---- widgetQuotaHint：控件等效成本提示词（与 estimateQuota 同口径，v0.34.3） ----
+{
+  const { widgetQuotaHint } = await import('../src/shared/parse.ts')
+  const hint = widgetQuotaHint()
+  assert(hint.includes('配图≈144字'), 'image 32mm→144')
+  assert(hint.includes('二维码≈117字'), 'qrcode 26mm→117')
+  assert(hint.includes('图表≈180字'), 'chart 40mm→180')
+  assert(hint.includes('表格每行≈25字'), '表格行 5.5mm→25')
+}
+
+// ---- hasRichMedia：富媒体嗅探（增字号填充跳过依据，v0.34.2） ----
+{
+  const { hasRichMedia } = await import('../src/shared/parse.ts')
+  // 图形型控件命中
+  assert(hasRichMedia('正文\n:::image{query:"city" caption:"图"}'), 'image 控件命中')
+  assert(hasRichMedia(':::qrcode{data:"https://x"}'), 'qrcode 控件命中')
+  assert(hasRichMedia(':::chart{type:"bar" title:"图" data:"a|1; b|2"}'), 'chart 控件命中')
+  // Markdown 表格命中（≥3 行以 | 开头）
+  assert(hasRichMedia('| 表头 |\n|---|---|\n| a | b |'.replace('|---|---|', '|---|---|')), '表格命中')
+  // 文字型控件不命中（quote/info/stat/timeline 可随字号安全缩放）
+  assert(!hasRichMedia('正文\n:::quote{text:"引言" source:"某人"}'), 'quote 不命中')
+  assert(!hasRichMedia(':::stat{value:"5%" label:"涨幅"}'), 'stat 不命中')
+  assert(!hasRichMedia('纯文字内容'), '纯文字不命中')
+  assert(!hasRichMedia(''), '空内容不命中')
+  assert(!hasRichMedia(undefined), 'undefined 不命中')
 }
 
 console.log('✅ 控件协议解析全部断言通过')

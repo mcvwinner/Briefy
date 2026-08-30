@@ -5,6 +5,7 @@ import type { IssueSummary } from '../shared/subscription'
 import { ROLE_DEFS, type SlotRole } from '../shared/layout'
 import { tavilySearch, tavilyImageSearch, fetchPageText } from './tools'
 import { buildWidgetPromptSection } from '../shared/widgets'
+import { widgetQuotaHint, hasRichMedia } from '../shared/parse'
 
 /**
  * 流式请求超时控制（v0.30 用户需求）：只要还在输出就不中断——
@@ -226,7 +227,7 @@ function buildSlotPrompt(
     roleSection,
     timelyAnchor,
     `控件建议：${ROLE_WIDGET_HINTS[roleKey] ?? '按栏目定位选用合适控件（见上方控件清单）'}`,
-    `要求：内容紧凑、信息密度高、符合报纸文风。全文严格控制在 ${wordLimit} 字以内——这是版面物理容量的硬性上限，超出会被裁切；宁可精炼勿冗长，写完即止。`,
+    `要求：内容紧凑、信息密度高、符合报纸文风。全文总体积（含控件折算）严格控制在 ${wordLimit} 字等效以内——这是版面物理容量的硬性上限，超出会被裁切；宁可精炼勿冗长，写完即止。${widgetQuotaHint()}`,
     `内容形式：${kind === 'headline' ? headlineFormat : kindRules[kind] ?? kindRules.text}`,
     `槽位主题要求：${prompt}`,
     // 头条三段式是硬性格式约束，置于提示词末尾以最强权重（AI 对末尾指令遵循率最高）
@@ -648,6 +649,19 @@ export async function planIssue(
 }
 
 /**
+ * 稿件媒体构成标注（v0.34.3）：审稿 AI 看不到渲染效果，但能从原始文本嗅探媒体类型——
+ * 标注出来让它检查图文匹配/数据一致性；无媒体的稿件返回空串（标题不带尾注）。
+ */
+function describeMedia(content: string): string {
+  const types: string[] = []
+  if (/:::image\{/.test(content)) types.push('配图')
+  if (/:::chart\{/.test(content)) types.push('图表')
+  if (/:::qrcode\{/.test(content)) types.push('二维码')
+  if (hasRichMedia(content) && content.split('\n').filter((l) => l.trim().startsWith('|')).length >= 3) types.push('表格')
+  return types.length > 0 ? `（含${types.join('、')}）` : ''
+}
+
+/**
  * 审稿：通读全部成品，查重复/超限/断裂，输出修改指令（不直接改文）。
  * 无问题时返回空数组；失败抛异常，由调用方忽略。
  */
@@ -662,6 +676,7 @@ export async function reviewIssue(
       role: 'system' as const,
       content: [
         '你是报纸主编，正在审阅一期报纸的全部稿件。检查：槽位间内容重复、明显事实断裂、与槽位职责不符。',
+        '稿件标注了媒体构成（配图/图表/表格/二维码）。含媒体的稿件需额外检查：媒体主题与正文是否一致、图表数据/表格内容与正文叙述是否矛盾、图注是否恰当——不一致则指出并给修改指令。',
         ...(settings.editorial?.reviewerNote?.trim()
           ? [`【主编特别指令（优先级高于以上默认规则）】${settings.editorial.reviewerNote.trim()}`]
           : []),
@@ -671,7 +686,11 @@ export async function reviewIssue(
     },
     {
       role: 'user' as const,
-      content: ['全部稿件：', ...articles.map((a) => `【${a.index}. ${a.role}】\n${a.content.slice(0, 1500)}`)].join('\n\n')
+      // 媒体构成标注（v0.34.3）：审稿 AI 可见每篇稿件的媒体类型，才能检查图文一致性
+      content: [
+        '全部稿件：',
+        ...articles.map((a) => `【${a.index}. ${a.role}${describeMedia(a.content)}】\n${a.content.slice(0, 1500)}`)
+      ].join('\n\n')
     }
   ]
   const raw = await chatOnce(settings, messages, signal, settings.editorial?.reviewModel, onTick)

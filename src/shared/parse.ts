@@ -17,6 +17,24 @@ function splitCount(value?: string): number {
   return value.split(';').filter((s) => s.trim()).length
 }
 
+/** 表格行等效高度（mm）：block-table 9pt 固定字号 + 内边距，实测每行 ≈5.5mm（v0.34.3 修正：
+ *  此前表格按字符计数，6 行表只折算 ~11mm 而实际渲染 ≈32mm，低估 3 倍导致体积评估失真） */
+const TABLE_ROW_MM = 5.5
+
+/**
+ * 控件/表格的等效字数成本说明（喂给 AI，v0.34.3）：生成时字数上限只算了总容量，
+ * 不告知控件占版成本的话，AI 会在写满上限之外再插控件 → 实际体积超限 → 被迫缩字号。
+ * 数字从 WIDGET_HEIGHT_MM 同源折算（高度mm×4.5字/mm），与 estimateQuota 评估口径严格一致。
+ */
+export function widgetQuotaHint(): string {
+  const q = (mm: number): number => Math.round(mm * 4.5)
+  return [
+    '字数上限指全文总体积（正文+控件折算）：若插入占版控件，需按以下等效字数从上限中扣除——',
+    `配图≈${q(32)}字/张、二维码≈${q(26)}字/个、图表≈${q(40)}字+每个数据点≈${q(3)}字、统计卡≈${q(15)}字/个、时间线≈${q(8)}字/条、目录≈${q(10)}字/条、表格每行≈${q(5.5)}字；`,
+    '控件越大越多，正文就要写得越少，总体积不得超上限。'
+  ].join(' ')
+}
+
 /**
  * 统计内容的等效字数（体积协调口径）：正文文字照计；图形型控件按占版面积折算（高度mm×4.5字/mm），
  * 文字型控件（quote/info）参数文字照计并加底高——让字数重新反映槽位体积，控件不再"隐形"。
@@ -55,6 +73,12 @@ export function estimateQuota(content: string): number {
       blockLines.push(raw)
       continue
     }
+    // 表格行按行折算（v0.34.3）：9pt 固定字号+内边距，行高 ≈5.5mm，与渲染实测一致；
+    // 按字符计数会低估 3 倍（| 名称 | 数值 | 去空白仅 ~8 字，渲染却是 5.5mm 高的一行）
+    if (line.startsWith('|')) {
+      total += Math.round(TABLE_ROW_MM * CHAR_PER_MM)
+      continue
+    }
     total += raw.replace(/\s+/g, '').length
   }
   closeBlock()
@@ -91,6 +115,19 @@ export type ContentNode =
   | { type: 'paragraph'; text: string }
   | { type: 'heading'; text: string }
   | { type: 'widget'; id: WidgetId; params: WidgetParams }
+
+/**
+ * 富媒体内容嗅探（v0.34.2）：内容含图形型控件（图片/二维码/图表）或 Markdown 表格。
+ * 这些元素随槽位字号缩放联动（zoom/占版面积），字号放大会让图片变糊、图表占版失衡——
+ * 字号自适应的"增字号填充"分支须对这类槽位跳过（缩小方向不受影响）。
+ */
+export function hasRichMedia(content?: string): boolean {
+  if (!content) return false
+  if (/:::(image|qrcode|chart)\{/.test(content)) return true
+  // Markdown 表格：≥3 行以 | 开头（含分隔行）
+  const tableLines = content.split('\n').filter((l) => l.trim().startsWith('|'))
+  return tableLines.length >= 3
+}
 
 /** 解析 :::id{key:"value", ...} 控件标记行 */
 function parseWidgetLine(line: string): { id: WidgetId; params: WidgetParams } | null {
