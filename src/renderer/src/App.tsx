@@ -717,6 +717,7 @@ function App(): React.JSX.Element {
       partsDesc
     ].join('\n')
     for (const g of group) layout.updateSlot(g.slot.id, { status: 'generating' })
+    console.log(`[gen] 接续组生成开始（${group.length} 栏，目标约 ${Math.round(totalEst * 4.5)} 字）`)
     const generationId = crypto.randomUUID()
     inFlightRef.current.add(generationId)
     try {
@@ -733,7 +734,7 @@ function App(): React.JSX.Element {
           totalEst,
           overrides
         ),
-        new Promise<never>((_, rej) => setTimeout(() => rej(new Error('接续组生成超时（240s）')), 240_000))
+        new Promise<never>((_, rej) => setTimeout(() => rej(new Error('接续组生成超时（300s）')), 300_000))
       ])
       const parts = result.content
         .split(new RegExp(`^\\s*${SEP}\\s*$`, 'm'))
@@ -832,6 +833,19 @@ function App(): React.JSX.Element {
       // ---- 编辑部模式（ROADMAP Q2）：选题 → 写作 → 审稿；任一环节失败自动降级为旧流程 ----
       // 存在关联槽位（接续组/子槽位）时本次不走三段式：选题单与审稿的按槽模型与合并/依赖语义冲突
       const hasRelations = continuationGroups.size > 0 || childTasks.length > 0
+      console.log(
+        `[gen] 任务规划: 单槽=${tasks.length} 接续组=${continuationGroups.size} 子槽位=${childTasks.length}`
+      )
+      if (continuationGroups.size > 0) {
+        for (const [g, arr] of continuationGroups)
+          console.log(`[gen] 接续组「${g}」: ${arr.map((x) => resolveRoleName(x.slot)).join(' + ')}`)
+      }
+      if (childTasks.length > 0) {
+        for (const t of childTasks) {
+          const pid = t.slot.relation?.type === 'child' ? t.slot.relation.parentId : '?'
+          console.log(`[gen] 子槽位「${resolveRoleName(t.slot)}」→ 父 id=${pid}`)
+        }
+      }
       const editorial =
         !hasRelations && (overrides?.editorial?.enabled ?? settingsRef.current?.editorial?.enabled === true)
       /** 选题单：index → 附加指令 */
@@ -875,26 +889,33 @@ function App(): React.JSX.Element {
         }
       }
       await Promise.all(Array.from({ length: Math.min(CONCURRENCY, tasks.length) }, worker))
+      console.log(`[gen] 单槽波完成（${tasks.length} 个，剩余接续组 ${continuationGroups.size} / 子槽位 ${childTasks.length}）`)
       if (cancelRef.current) return
 
       // ---- 接续槽位组：每组一次 AI 调用，输出按分隔符拆分回填（v0.29）----
       if (continuationGroups.size > 0) {
         setPhase('生成接续栏目…')
-        for (const [, group] of continuationGroups) {
+        for (const [gname, group] of continuationGroups) {
           if (cancelRef.current) break
+          console.log(`[gen] 接续组「${gname}」开始（${group.length} 槽）`)
           await runGroupTask(group, docContext, overrides)
+          console.log(`[gen] 接续组「${gname}」结束`)
         }
       }
 
       // ---- 子槽位第二波：父槽已完成，注入父槽产出全文与之衔接（v0.29）----
       if (childTasks.length > 0 && !cancelRef.current) {
         setPhase('生成子栏目…')
+        console.log(`[gen] 子槽位波开始（${childTasks.length} 个）`)
         const docAfter = layout.docRef.current
         const all = docAfter.pages.flatMap((p) => p.slots)
         for (const t of childTasks) {
           if (cancelRef.current) break
           const parentId = t.slot.relation?.type === 'child' ? t.slot.relation.parentId : null
           const parent = parentId ? all.find((s) => s.id === parentId) : null
+          console.log(
+            `[gen] 子槽位「${resolveRoleName(t.slot)}」父槽: ${parent ? `${resolveRoleName(parent)}(${parent.status})` : '未找到（检查父槽位是否设置/父栏 prompt 是否为空）'}`
+          )
           const parentContent = parent?.status === 'done' ? parent.content ?? '' : ''
           const extra = parentContent
             ? `【父栏目「${resolveRoleName(parent!)}」已生成内容】\n${parentContent}\n\n请作为其子栏目与之衔接：承接话题、展开细节或提供补充视角，不要重复父栏目已述内容。`
