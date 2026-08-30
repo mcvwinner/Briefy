@@ -519,6 +519,9 @@ function App(): React.JSX.Element {
       return { ...prev, [slotId]: { fit, overflow, actualMm } }
     })
   }, [])
+  /** 最新实测引用：订阅版面适配循环跨渲染读取（闭包快照是过期数据，v0.31 教训） */
+  const slotFitsRef = useRef(slotFits)
+  slotFitsRef.current = slotFits
 
   /** 收集并显示质量报告卡：生成完成时自动弹出；卡内「刷新」手动重取最新状态（含仍在生成的槽位） */
   const collectReport = (reviewFixedCount: number, overrides?: Partial<AiSettings>): void => {
@@ -658,26 +661,24 @@ function App(): React.JSX.Element {
           repaired++
         }
       }
-      // ---- 版面适配循环（v0.31，仅手动布局订阅）：页数/槽位集合/列结构/相对顺序锁定，其余全适配 ----
-      if (sub.template.doc.layoutMode === 'manual') {
+      // ---- 版面适配循环（v0.31 实验性，仅手动布局订阅 + 开关开启）：
+      // 页数/槽位集合/列结构/列内相对顺序锁定；允许调 estHeight（高度）与纵向位置（列内流式重排）。
+      // 每轮从 slotFitsRef 读最新实测（v0.31 修复：闭包快照是过期数据，是上一版越适越乱的原因）；
+      // 单轮 est 变化钉在 ±40% 以内防震荡；溢出槽只做几何吸收+裁剪（不打回——新内容引入新波动是震荡源）。
+      if (sub.experimentalLayoutFit && sub.template.doc.layoutMode === 'manual') {
         setPhase('版面适配…')
         const geo = resolveGeometry(sub.template.layout)
         const bottomLimit = geo.pageHeightMM - geo.marginMM
-        const issueDocContext = {
-          title: layout.docRef.current.title,
-          outline: layout.docRef.current.pages.flatMap((page, pi) =>
-            page.slots.map((s) => ({ position: `第${pi + 1}页·${resolveRoleName(s, sub.template.customRoles)}`, prompt: s.prompt }))
-          )
-        }
         for (let round = 0; round < 3; round++) {
+          const fits = slotFitsRef.current // 实时读
           const doc = layout.docRef.current
           const all = doc.pages.flatMap((p, pi) => p.slots.map((s) => ({ s, pageIdx: pi })))
           const overflowSlots = all.filter(
-            ({ s }) => s.role !== 'free' && s.status === 'done' && slotFits[s.id]?.overflow
+            ({ s }) => s.role !== 'free' && s.status === 'done' && fits[s.id]?.overflow
           )
           const sparseSlots = all.filter(({ s }) => {
             if (s.role === 'free' || s.status !== 'done') return false
-            const f = slotFits[s.id]
+            const f = fits[s.id]
             if (!f || f.overflow) return false
             const capacity = s.estHeight + (s.overflow ?? 0)
             return f.fit >= 1.24 && f.actualMm < capacity * 0.6 && capacity > 40
@@ -687,34 +688,32 @@ function App(): React.JSX.Element {
 
           const adjustedPages = new Set<number>()
           const pageIdxOf = (id: string): number => all.find((x) => x.s.id === id)?.pageIdx ?? 0
-          // 动作 A：溢出槽先吸收页内剩余空间（est 增高到页底）；页底到顶则打回重写（目标 = 槽容量×0.9）
+          // 动作 A：溢出槽吸收页内剩余空间（钳制在页底）；吸收不完 → 内容裁剪 + 标记瑕疵（不打回）
           for (const { s } of overflowSlots) {
-            const need = Math.ceil((slotFits[s.id]?.actualMm ?? s.estHeight) - s.estHeight) + 2
+            const actual = fits[s.id]?.actualMm ?? s.estHeight
+            const need = Math.ceil(actual - s.estHeight) + 2
             const maxGrow = Math.max(0, bottomLimit - s.region.y - s.estHeight)
-            if (need <= maxGrow) {
-              layout.updateSlot(s.id, { estHeight: s.estHeight + need, overflow: 0 })
+            if (maxGrow > 4) {
+              const grow = Math.min(need, maxGrow, Math.ceil(s.estHeight * 0.4))
+              layout.updateSlot(s.id, { estHeight: s.estHeight + grow, overflow: 0 })
               adjustedPages.add(pageIdxOf(s.id))
-            } else if (maxGrow > 10) {
-              layout.updateSlot(s.id, { estHeight: s.estHeight + Math.floor(maxGrow), overflow: 0 })
-              adjustedPages.add(pageIdxOf(s.id))
+              console.log(`[fit] 溢出槽「${resolveRoleName(s)}」增高 ${grow}mm（页内上限 ${maxGrow}mm）`)
             } else {
-              const target = Math.max(40, Math.round(s.estHeight * 4.5 * 0.9))
-              const idx = all.findIndex((x) => x.s.id === s.id)
-              console.log(`[fit] 溢出槽「${resolveRoleName(s)}」页底无空间，打回重写（目标 ${target} 字）`)
-              await runSlotTask(s, idx, issueDocContext, `【版面适配退稿】你上一稿体积远超本栏容量（约 ${target} 字）。这次压缩到 ${target} 字以内：保留最关键的事实与结论，删除展开与修饰。`, overrides)
-              repaired++
-              adjustedPages.add(pageIdxOf(s.id))
+              console.log(`[fit] 溢出槽「${resolveRoleName(s)}」页内已无空间，内容裁剪 + 标记瑕疵`)
             }
           }
-          // 动作 B：留白槽收缩 est 贴合内容（+8mm 余量，不低于 30mm）
+          // 动作 B：留白槽收缩 est 贴合内容（+8mm 余量，不低于 30mm，单轮 ≤40%）
           for (const { s } of sparseSlots) {
-            const newH = Math.max(30, Math.round((slotFits[s.id]?.actualMm ?? s.estHeight) * 1.15) + 8)
+            const actual = fits[s.id]?.actualMm ?? s.estHeight
+            const newH = Math.max(30, Math.round(actual * 1.15) + 8)
             if (newH < s.estHeight - 5) {
-              layout.updateSlot(s.id, { estHeight: newH, overflow: 0 })
+              const shrunk = Math.max(newH, Math.ceil(s.estHeight * 0.6))
+              layout.updateSlot(s.id, { estHeight: shrunk, overflow: 0 })
               adjustedPages.add(pageIdxOf(s.id))
+              console.log(`[fit] 留白槽「${resolveRoleName(s)}」收缩 ${s.estHeight} → ${shrunk}mm`)
             }
           }
-          // 动作 C：调整过的页做列内流式重排（相对位置不变：列起点锚定/列内顺序保持）
+          // 动作 C：调整过的页做列内流式重排（列起点锚定/列内顺序保持——相对位置不变）
           const curDoc = layout.docRef.current
           const pages = curDoc.pages.map((p, i) =>
             adjustedPages.has(i) ? { ...p, slots: reflowManualPage(p.slots, geo) } : p
@@ -722,7 +721,7 @@ function App(): React.JSX.Element {
           layout.loadDoc({ ...curDoc, pages })
           layout.docRef.current = { ...curDoc, pages }
           // 等渲染实测收敛后进下一轮
-          await new Promise<void>((r) => setTimeout(r, 2000))
+          await new Promise<void>((r) => setTimeout(r, 2500))
         }
       }
       // PDF 归档 + 记忆写回（摘要优先 AI 提炼：保留关键事实供下期防重复/连载；失败降级为零成本截断）
