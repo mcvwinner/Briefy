@@ -52,12 +52,17 @@ export interface CustomRole {
   duty: string
 }
 
-/** 编辑部三段式（ROADMAP Q2）：选题→写作→审稿；默认关 = 旧逐槽独立流程 */
+/** 编辑部三段式（ROADMAP Q2）：选题→写作→审稿；默认关 = 旧逐槽独立流程。
+ *  plannerNote/reviewerNote（v0.30）：用户直接给选题/审稿编辑的特别指令（可控性通道） */
 export interface EditorialPrefs {
   /** 启用编辑部模式 */
   enabled?: boolean
   /** 选题/审稿模型（留空 = 主模型） */
   reviewModel?: string
+  /** 选题编辑特别指令（如“本期重点报道 X”“多挖掘小众项目”） */
+  plannerNote?: string
+  /** 审稿编辑特别指令（如“严查数字与日期”“标题多用疑问句”） */
+  reviewerNote?: string
 }
 
 /** AI 服务配置 + 外观偏好，持久化在应用 userData 目录 */

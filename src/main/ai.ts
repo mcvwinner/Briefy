@@ -622,6 +622,9 @@ export async function planIssue(
       content: [
         '你是一家个性化报纸的选题编辑。请通览全部版面槽位与信息源摘要，为每个槽位分配互不重复的选题角度。',
         '规则：头条给最有分量的选题；数据槽专注数字；快讯覆盖未被头条与正文使用的小事件；相邻槽位角度必须错开。',
+        ...(settings.editorial?.plannerNote?.trim()
+          ? [`【主编特别指令（优先级高于以上默认规则）】${settings.editorial.plannerNote.trim()}`]
+          : []),
         '只输出 JSON，格式：{"assignments":[{"index":槽位序号,"angle":"一句话选题（含切入角度）","quota":建议字数,"avoid":"需与哪个槽位错开什么"}]}',
         'index 必须覆盖全部槽位，一字不差。'
       ].join('\n')
@@ -658,6 +661,9 @@ export async function reviewIssue(
       role: 'system' as const,
       content: [
         '你是报纸主编，正在审阅一期报纸的全部稿件。检查：槽位间内容重复、明显事实断裂、与槽位职责不符。',
+        ...(settings.editorial?.reviewerNote?.trim()
+          ? [`【主编特别指令（优先级高于以上默认规则）】${settings.editorial.reviewerNote.trim()}`]
+          : []),
         '只输出 JSON，格式：{"comments":[{"index":槽位序号,"problem":"问题一句话","instruction":"给该槽位作者的重写指令（含应保留什么、避开什么）"}]}',
         '没有需要修改的稿件时输出 {"comments":[]}。宁缺毋滥：只指出确凿的问题。'
       ].join('\n')

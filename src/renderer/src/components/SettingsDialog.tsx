@@ -142,6 +142,9 @@ function SettingsDialog({ open, settings, onClose, onSaved }: SettingsDialogProp
   const [customRoleList, setCustomRoleList] = useState<{ name: string; duty: string }[]>([])
   const [editorialEnabled, setEditorialEnabled] = useState(false)
   const [reviewModel, setReviewModel] = useState('')
+  /** 用户直接给编辑的特别指令（v0.30 可控性通道） */
+  const [plannerNote, setPlannerNote] = useState('')
+  const [reviewerNote, setReviewerNote] = useState('')
   /** 职责编辑器展开的角色 */
   const [dutyOpenItems, setDutyOpenItems] = useState<string[]>([])
 
@@ -159,6 +162,8 @@ function SettingsDialog({ open, settings, onClose, onSaved }: SettingsDialogProp
       setCustomRoleList(settings.customRoles ?? [])
       setEditorialEnabled(settings.editorial?.enabled === true)
       setReviewModel(settings.editorial?.reviewModel ?? '')
+      setPlannerNote(settings.editorial?.plannerNote ?? '')
+      setReviewerNote(settings.editorial?.reviewerNote ?? '')
     }
   }, [open, settings])
 
@@ -179,7 +184,9 @@ function SettingsDialog({ open, settings, onClose, onSaved }: SettingsDialogProp
       customRoles: customRoleList.filter((c) => c.name.trim() && c.duty.trim()),
       editorial: {
         enabled: editorialEnabled,
-        reviewModel: reviewModel.trim() || undefined
+        reviewModel: reviewModel.trim() || undefined,
+        plannerNote: plannerNote.trim() || undefined,
+        reviewerNote: reviewerNote.trim() || undefined
       }
     }
     try {
@@ -341,6 +348,20 @@ function SettingsDialog({ open, settings, onClose, onSaved }: SettingsDialogProp
                   placeholder="选题/审稿模型（留空 = 用上方主模型，如 deepseek-reasoner）"
                   value={reviewModel}
                   onChange={(_, d) => setReviewModel(d.value)}
+                />
+                <Textarea
+                  size="small"
+                  style={{ minHeight: '52px' }}
+                  placeholder="选题编辑特别指令（可选）：如「本期重点报道 AI 端侧落地」「多挖掘小众开源项目」…"
+                  value={plannerNote}
+                  onChange={(_, d) => setPlannerNote(d.value)}
+                />
+                <Textarea
+                  size="small"
+                  style={{ minHeight: '52px' }}
+                  placeholder="审稿编辑特别指令（可选）：如「严查数字与日期」「标题多用疑问句」「口吻更犀利」…"
+                  value={reviewerNote}
+                  onChange={(_, d) => setReviewerNote(d.value)}
                 />
                 <p className={styles.hint}>
                   每期额外增加 2 次 AI 调用；审稿意见生成后由你决定是否按指令重写；生成前的版本自动存为快照可还原。
