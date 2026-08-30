@@ -49,9 +49,10 @@ export interface Subscription {
   template: SubscriptionTemplate
   /** 分层记忆：recent 最近 3 期详细摘要；digest 更早期的滚动总览 */
   memory: { recent: IssueSummary[]; digest: string }
-  issues: IssueRecord[]  /** 实验性（v0.31）：手动布局出刊时自动适配版面——调整槽位高度/纵向位置与字号以贴合内容。
-   *  默认关闭：保持用户模板几何完全不变（超容内容裁剪+质检标记）。 */
-  experimentalLayoutFit?: boolean}
+  issues: IssueRecord[]
+  /** 已废弃（v0.34.1 迁至 AiSettings.experimentalLayoutFit 全局设置）：保留字段防旧数据报错，出刊逻辑已改读全局设置 */
+  experimentalLayoutFit?: boolean
+}
 
 /** 记忆短期层容量：超过则最旧一期并入 digest */
 export const RECENT_MEMORY_LIMIT = 3

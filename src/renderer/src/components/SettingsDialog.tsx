@@ -145,6 +145,8 @@ function SettingsDialog({ open, settings, onClose, onSaved }: SettingsDialogProp
   /** 用户直接给编辑的特别指令（v0.30 可控性通道） */
   const [plannerNote, setPlannerNote] = useState('')
   const [reviewerNote, setReviewerNote] = useState('')
+  /** 实验性（v0.34.1 自订阅对话框迁入）：手动布局出刊时自动适配版面 */
+  const [expLayoutFit, setExpLayoutFit] = useState(false)
   /** 职责编辑器展开的角色 */
   const [dutyOpenItems, setDutyOpenItems] = useState<string[]>([])
 
@@ -164,6 +166,7 @@ function SettingsDialog({ open, settings, onClose, onSaved }: SettingsDialogProp
       setReviewModel(settings.editorial?.reviewModel ?? '')
       setPlannerNote(settings.editorial?.plannerNote ?? '')
       setReviewerNote(settings.editorial?.reviewerNote ?? '')
+      setExpLayoutFit(settings.experimentalLayoutFit === true)
     }
   }, [open, settings])
 
@@ -187,7 +190,9 @@ function SettingsDialog({ open, settings, onClose, onSaved }: SettingsDialogProp
         reviewModel: reviewModel.trim() || undefined,
         plannerNote: plannerNote.trim() || undefined,
         reviewerNote: reviewerNote.trim() || undefined
-      }
+      },
+      // 显式存布尔（不省略 false）：出刊逻辑只认全局设置，须能覆盖旧订阅上的遗留字段
+      experimentalLayoutFit: expLayoutFit
     }
     try {
       if (window.briefy) {
@@ -288,6 +293,11 @@ function SettingsDialog({ open, settings, onClose, onSaved }: SettingsDialogProp
               checked={layout.grayscale === true}
               onChange={(_, d) => setLayout({ ...layout, grayscale: d.checked === true })}
             />
+            <Checkbox
+              label="来源署名（槽位尾部显示「来源：xxx」小字；关闭后预览与导出 PDF 均不显示）"
+              checked={layout.showSources !== false}
+              onChange={(_, d) => setLayout({ ...layout, showSources: d.checked === true })}
+ />
             <Field label="页眉页脚（绘制在页边距区，不占内容空间）">
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                 <Checkbox
@@ -452,9 +462,16 @@ function SettingsDialog({ open, settings, onClose, onSaved }: SettingsDialogProp
         )
       case 'labs':
         return (
-          <p className={styles.hint}>
-            实验性功能在这里灰度开放；验证稳定后会转正到对应分区并移除开关。当前暂无实验项。
-          </p>
+          <>
+            <Checkbox
+              label="实验性：订阅出刊时自动适配版面（自动调整槽位高度/位置与字号以贴合内容；仅手动布局订阅生效；默认关闭 = 严格保持模板几何，超容内容裁剪+质检标记）"
+              checked={expLayoutFit}
+              onChange={(_, d) => setExpLayoutFit(d.checked === true)}
+            />
+            <p className={styles.hint}>
+              实验性功能在这里灰度开放；验证稳定后会转正到对应分区并移除开关。开关对全部订阅生效（原订阅创建时的勾选已迁入此处）。
+            </p>
+          </>
         )
       case 'about':
         return (

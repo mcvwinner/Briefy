@@ -380,6 +380,8 @@ function PageView({ page, selectedSlotId, onSelectSlot, onOverflow, onFit, print
   // 多栏正文流（ROADMAP Q3）：正文槽位文字分栏（1–3 栏，默认 1 = 单栏）
   const columns = prefs?.columns !== undefined ? Math.min(3, Math.max(1, Math.round(prefs.columns))) : 1
   const marginNum = prefs?.marginMM !== undefined ? Math.min(25, Math.max(10, prefs.marginMM)) : 15
+  // 来源署名显示（v0.34.1）：默认显示（undefined = 现有稳定体验）
+  const showSources = prefs?.showSources !== false
 
   // ---- 手动布局：拖拽移动 / 拖角缩放（mm 与 px 互转基于 sheet 实际宽度）----
   const mmPerPx = (): number => 210 / (sheetRef.current?.clientWidth ?? 794)
@@ -509,8 +511,8 @@ function PageView({ page, selectedSlotId, onSelectSlot, onOverflow, onFit, print
           }}
         >
           <SlotContent kind={slot.kind} content={slot.content} role={slot.role} />
-          {/* 来源署名（ROADMAP Q1）：挂在槽位上的源即视为本期事实依据 */}
-          {(slot.sources?.length ?? 0) > 0 && (
+          {/* 来源署名（ROADMAP Q1）：挂在槽位上的源即视为本期事实依据；设置可关（v0.34.1） */}
+          {showSources && (slot.sources?.length ?? 0) > 0 && (
             <div className="slot-sources">来源：{slot.sources.map((s) => s.name).join('、')}</div>
           )}
         </div>

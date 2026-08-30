@@ -41,6 +41,8 @@ export interface LayoutPrefs {
     /** 报头文字（留空 = 用文档标题） */
     text?: string
   }
+  /** 来源署名显示（v0.34.1）：槽位尾部的「来源：xxx」小字；默认显示，关闭后预览与导出均不渲染 */
+  showSources?: boolean
 }
 
 /** 自定义角色（用户反馈：支持添加新角色）：
@@ -89,6 +91,9 @@ export interface AiSettings {
   editorial?: EditorialPrefs
   /** 自定义角色库（用户反馈：支持添加新角色） */
   customRoles?: CustomRole[]
+  /** 实验性（v0.34.1，自订阅创建对话框迁入）：手动布局出刊时自动适配版面——调整槽位高度/位置与字号以贴合内容。
+   *  默认关 = 严格保持模板几何（超容裁剪+质检标记）。仅订阅出刊链路使用 */
+  experimentalLayoutFit?: boolean
 }
 
 export type ThemeMode = 'light' | 'dark'

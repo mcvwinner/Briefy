@@ -2,6 +2,15 @@
 
 本项目的所有显著变更记录于此。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [0.34.1] - 2026-08-31
+
+### 新增（设置项：来源署名开关）+ 调整（实验开关迁移）
+
+- **来源署名可关闭**：设置 → 版式 →「来源署名」（默认开）：关闭后槽位尾部的「来源：xxx」小字在预览与导出 PDF 中均不渲染（`LayoutPrefs.showSources`）；
+- **实验开关迁移**：「订阅出刊时自动适配版面」从订阅创建对话框迁至设置 → 实验性（`AiSettings.experimentalLayoutFit`），对全部订阅统一生效；订阅创建界面不再有勾选；
+- **兼容语义**：设置保存时始终写显式布尔（false 也保留），可覆盖旧订阅上的遗留 `experimentalLayoutFit` 字段；旧字段仅在该设置从未保存过时兜底生效；`Subscription.experimentalLayoutFit` 标记废弃保留（防旧数据报错）；
+- 新增探针 `scripts/probe-settings.mjs`：实测默认显示/关闭隐藏/恢复显示 + 实验开关持久化（3 场景全过）。
+
 ## [0.34.0] - 2026-08-31
 
 ### 优化（token 消耗：搜索调用层）

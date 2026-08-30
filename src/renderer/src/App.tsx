@@ -686,10 +686,13 @@ function App(): React.JSX.Element {
         }
       }
       // ---- 版面适配循环（v0.31 实验性，仅手动布局订阅 + 开关开启）：
+      // 开关 v0.34.1 迁至全局设置（AiSettings.experimentalLayoutFit）：设置保存时始终写显式布尔，
+      // 能覆盖旧订阅上的遗留字段；旧订阅字段仅在该设置从未保存过（undefined）时兜底生效。
       // 页数/槽位集合/列结构/列内相对顺序锁定；允许调 estHeight（高度）与纵向位置（列内流式重排）。
       // 每轮从 slotFitsRef 读最新实测（v0.31 修复：闭包快照是过期数据，是上一版越适越乱的原因）；
       // 单轮 est 变化钉在 ±40% 以内防震荡；溢出槽只做几何吸收+裁剪（不打回——新内容引入新波动是震荡源）。
-      if (sub.experimentalLayoutFit && sub.template.doc.layoutMode === 'manual') {
+      const layoutFitEnabled = issueSettings.experimentalLayoutFit ?? sub.experimentalLayoutFit === true
+      if (layoutFitEnabled && sub.template.doc.layoutMode === 'manual') {
         setPhase('版面适配…')
         const geo = resolveGeometry(sub.template.layout)
         const bottomLimit = geo.pageHeightMM - geo.marginMM

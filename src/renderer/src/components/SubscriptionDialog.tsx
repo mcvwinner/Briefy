@@ -2,7 +2,6 @@ import type * as React from 'react'
 import { useEffect, useState } from 'react'
 import {
   Button,
-  Checkbox,
   Dialog,
   DialogActions,
   DialogBody,
@@ -85,7 +84,6 @@ function SubscriptionDialog({ open, onClose, currentDoc, currentSettings, onPush
   const styles = useStyles()
   const [subs, setSubs] = useState<Subscription[]>([])
   const [newName, setNewName] = useState('')
-  const [newExpFit, setNewExpFit] = useState(false)
   const [expanded, setExpanded] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -103,7 +101,6 @@ function SubscriptionDialog({ open, onClose, currentDoc, currentSettings, onPush
       id: crypto.randomUUID(),
       name: newName.trim(),
       createdAt: new Date().toLocaleString('zh-CN'),
-      experimentalLayoutFit: newExpFit || undefined,
       template: {
         doc: structuredClone(currentDoc),
         layout: currentSettings.layout,
@@ -161,11 +158,7 @@ function SubscriptionDialog({ open, onClose, currentDoc, currentSettings, onPush
                   创建
                 </Button>
               </div>
-              <Checkbox
-                label="实验性：出刊时自动适配版面（自动调整槽位高度/位置与字号以贴合内容；手动布局订阅可用；默认关闭 = 严格保持模板几何）"
-                checked={newExpFit}
-                onChange={(_, d) => setNewExpFit(d.checked === true)}
-              />
+              {/* 实验开关已迁至设置 → 实验性（v0.34.1）：全局生效，不再随订阅单独勾选 */}
               {/* 订阅列表 */}
               {subs.length === 0 && <Text size={200}>还没有订阅。先排版一份报纸，再在这里把它创建为订阅。</Text>}
               {subs.map((sub) => {

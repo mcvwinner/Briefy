@@ -1,6 +1,6 @@
 {
   "name": "briefy",
-  "version": "0.34.0",
+  "version": "0.34.1",
   "description": "用 AI 自动填充内容，像排报纸一样制作个性化读物的桌面应用",
   "main": "./out/main/index.js",
   "author": "Briefy Contributors",
