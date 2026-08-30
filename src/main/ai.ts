@@ -5,6 +5,35 @@ import { ROLE_DEFS, type SlotRole } from '../shared/layout'
 import { tavilySearch, tavilyImageSearch, fetchPageText } from './tools'
 import { buildWidgetPromptSection } from '../shared/widgets'
 
+/**
+ * 流式请求超时控制（v0.30 用户需求）：只要还在输出就不中断——
+ * 空闲 90s 无数据才断，总时长封顶 600s。tick() 在每读到一块数据时调用续命。
+ * 计时器残留最长 600s 且到点仅 abort 已完成的 controller，无功能影响。
+ */
+function streamAbort(signal?: AbortSignal): {
+  signal: AbortSignal
+  tick: () => void
+} {
+  const ctrl = new AbortController()
+  const IDLE_MS = 90_000
+  const TOTAL_MS = 600_000
+  let idle: NodeJS.Timeout | undefined
+  const arm = (): void => {
+    clearTimeout(idle)
+    idle = setTimeout(() => ctrl.abort(new Error('AI 输出空闲超过 90s，已中止')), IDLE_MS)
+  }
+  arm()
+  const total = setTimeout(() => ctrl.abort(new Error('AI 生成总时长超过 600s 上限，已中止')), TOTAL_MS)
+  const onOuterAbort = (): void => ctrl.abort(signal?.reason)
+  signal?.addEventListener('abort', onOuterAbort)
+  ctrl.signal.addEventListener('abort', () => {
+    clearTimeout(idle)
+    clearTimeout(total)
+    signal?.removeEventListener('abort', onOuterAbort)
+  })
+  return { signal: ctrl.signal, tick: arm }
+}
+
 /** 语篇上下文：整份报纸的槽位大纲（App 层构建，含角色名与职责） */
 export interface DocContext {
   title: string
@@ -276,11 +305,13 @@ export async function generateSlotContent(
   // 上限放宽到 12：一轮可能并行发多个 tool_calls，每次请求算一步。
   // 流式输出：正文增量通过 onTick 回调心跳（ROADMAP 用户反馈：长等待需可见变化）
   for (let step = 0; step < 12; step++) {
+    // 超时机制（v0.30 用户需求）：只要还在输出就不中断——空闲 90s 无数据才断，总上限 600s
+    const sa = streamAbort(signal)
     const res = await fetch(url, {
       method: 'POST',
       headers,
       body: JSON.stringify({ model: settings.model, messages, tools: openaiTools, stream: true, stream_options: { include_usage: true } }),
-      signal: AbortSignal.any([AbortSignal.timeout(90_000), ...(signal ? [signal] : [])])
+      signal: sa.signal
     })
     if (!res.ok) {
       const errText = await res.text()
@@ -298,6 +329,7 @@ export async function generateSlotContent(
     for (;;) {
       const { done, value } = await reader.read()
       if (done) break
+      sa.tick() // 有数据流动：重置空闲计时（长文生成不中断）
       buf += decoder.decode(value, { stream: true })
       const lines = buf.split('\n')
       buf = lines.pop() ?? ''
@@ -386,7 +418,7 @@ export async function generateSlotContent(
     method: 'POST',
     headers,
     body: JSON.stringify({ model: settings.model, messages }),
-    signal: AbortSignal.any([AbortSignal.timeout(90_000), ...(signal ? [signal] : [])])
+    signal: AbortSignal.any([AbortSignal.timeout(600_000), ...(signal ? [signal] : [])])
   })
   if (!finalRes.ok) throw new Error(`AI 接口错误 ${finalRes.status}`)
   const finalData = (await finalRes.json()) as {
@@ -430,11 +462,13 @@ async function streamChatText(
   onTick?: (delta: string) => void
 ): Promise<string> {
   const url = (settings.baseUrl || 'https://api.openai.com/v1').replace(/\/+$/, '') + '/chat/completions'
+  // 流式：空闲 90s 无输出才断，总上限 600s（v0.30）
+  const sa = streamAbort(signal)
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${settings.apiKey}` },
     body: JSON.stringify({ ...body, stream: true }),
-    signal: AbortSignal.any([AbortSignal.timeout(90_000), ...(signal ? [signal] : [])])
+    signal: sa.signal
   })
   if (!res.ok) throw new Error(`AI 接口错误 ${res.status}: ${(await res.text()).slice(0, 200)}`)
   if (!res.body) throw new Error('AI 返回了空响应流')
