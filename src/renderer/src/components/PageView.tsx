@@ -217,6 +217,7 @@ function SlotBox({
   roleName,
   selected,
   fillHeight,
+  printScale,
   onResizeStart,
   onPointerDown,
   onOverflow,
@@ -228,6 +229,8 @@ function SlotBox({
   selected: boolean
   /** 手动布局：外层已定宽高，槽位填满容器 */
   fillHeight?: boolean
+  /** 打印模式：fitScale 锁定为主窗口终值（所见即所得），禁用本窗口测量收敛 */
+  printScale?: number
   /** 手动布局：拖角缩放手柄（仅选中时传入） */
   onResizeStart?: (e: React.PointerEvent) => void
   onPointerDown: (e: React.PointerEvent) => void
@@ -246,15 +249,21 @@ function SlotBox({
   const growingRef = useRef(false)
   const lockedRef = useRef(false)
   useEffect(() => {
+    if (printScale !== undefined) return // 打印模式：fitScale 锁定，不响应内容变化
     setFitScale(1)
     growingRef.current = false
     lockedRef.current = false
-  }, [slot.content])
+  }, [slot.content, printScale])
   // 每次渲染后测量（无依赖数组）：内容/字号变化都重测；达标时不触发 setState，自然收敛。
   // 用 scrollHeight：自动模式（内容撑开）= offsetHeight；手动模式（高度固定+hidden）= 完整内容高
   useLayoutEffect(() => {
     const el = ref.current
     if (!el) return
+    if (printScale !== undefined) {
+      // 打印模式（所见即所得）：fitScale 锁定为主窗口终值，禁用测量收敛
+      if (slot.status === 'done') onFit?.(slot.id, printScale, false, pxToMm(el.scrollHeight))
+      return
+    }
     const actualMm = pxToMm(el.scrollHeight)
     const limit = slot.estHeight + (slot.overflow ?? 0)
     // 自由创作槽（v0.29）：不限字数格式——跳过字号缩放与溢出腾挪，内容自然流
@@ -319,8 +328,8 @@ interface PageViewProps {
   /** 手动模式：拖角结束提交尺寸 */
   onResizeSlot?: (slotId: string, width: number, estHeight: number) => void
   /** 实测适配状态回写（字号比例/溢出/内容实际高度；质量报告与版面适配以实测为准）；打印视图不传 */
-  onFit?: (slotId: string, fitScale: number, overflow: boolean, actualMm: number) => void
-  /** 版式偏好（页边距/栏距/字体/字号/行距/黑白优先/页眉页脚）；缺省 = 内置默认 */
+  onFit?: (slotId: string, fitScale: number, overflow: boolean, actualMm: number) => void  /** 打印视图：主窗口回写的每槽 fitScale 终值（所见即所得——打印窗口禁用收敛循环） */
+  printFits?: Record<string, number>  /** 版式偏好（页边距/栏距/字体/字号/行距/黑白优先/页眉页脚）；缺省 = 内置默认 */
   prefs?: LayoutPrefs
   /** 自定义角色库（徽章显示自定义角色名） */
   customRoles?: CustomRole[]
@@ -348,7 +357,7 @@ function groupColumns(slots: Slot[]): { full: Slot[]; left: Slot[]; right: Slot[
 }
 
 /** A4 页面：全宽槽位纵向流 + 左右半栏真实并排；手动布局模式下槽位绝对定位可拖拽 */
-function PageView({ page, selectedSlotId, onSelectSlot, onOverflow, onFit, manual, onMoveSlot, onResizeSlot, prefs, customRoles, docTitle, pageNo, totalPages }: PageViewProps): React.JSX.Element {
+function PageView({ page, selectedSlotId, onSelectSlot, onOverflow, onFit, printFits, manual, onMoveSlot, onResizeSlot, prefs, customRoles, docTitle, pageNo, totalPages }: PageViewProps): React.JSX.Element {
   const styles = useStyles()
   const { full, left, right } = groupColumns(page.slots)
   const sheetRef = useRef<HTMLDivElement | null>(null)
@@ -481,6 +490,7 @@ function PageView({ page, selectedSlotId, onSelectSlot, onOverflow, onFit, manua
       onPointerDown={() => onSelectSlot(slot.id)}
       onOverflow={onOverflow}
       onFit={onFit}
+      printScale={printFits?.[slot.id]}
     >
       {slot.status === 'done' && slot.content ? (
         <div

@@ -11,8 +11,8 @@ import type { LayoutDoc } from '../shared/layout'
  * 页面物理尺寸由 CSS 保证（sheet 固定 210×297mm + overflow hidden），内容永不突破纸张。
  */
 
-/** 待导出文档（主进程暂存，打印窗口渲染进程经 IPC 取走） */
-let pendingDoc: LayoutDoc | null = null
+/** 待导出数据（主进程暂存，打印窗口渲染进程经 IPC 取走）：文档 + 主窗口每槽 fitScale 终值（所见即所得） */
+let pendingDoc: { doc: LayoutDoc; fits?: Record<string, number> } | null = null
 /** 打印视图渲染完成的通知回调 */
 let notifyRenderReady: (() => void) | null = null
 
@@ -28,13 +28,13 @@ function preloadPath(): string {
 export function registerExportIpc(): void {
   ipcMain.handle(
     'export:pdf',
-    async (_event, doc: LayoutDoc, savePath?: string) => {
+    async (_event, doc: LayoutDoc, savePath?: string, fits?: Record<string, number>) => {
     const source =
       BrowserWindow.getAllWindows().find((w) => !w.isDestroyed() && !w.webContents.getURL().includes('print=1')) ??
       BrowserWindow.getAllWindows().find((w) => !w.isDestroyed())
     if (!source) return null
 
-    pendingDoc = doc ?? null
+    pendingDoc = doc ? { doc, fits } : null
     // 渲染完成通知（5s 超时兜底：即使渲染卡住也照常导出，不无限等待）
     const ready = new Promise<void>((resolve) => {
       notifyRenderReady = resolve
@@ -78,7 +78,7 @@ export function registerExportIpc(): void {
     }
   })
 
-  // 打印窗口渲染进程：取待导出文档
+  // 打印窗口渲染进程：取待导出文档与主窗口 fitScale 终值
   ipcMain.handle('export:get-doc', () => pendingDoc)
   // dev 自动化：读取任意路径的 .briefy（仅未打包版本可用）
   ipcMain.handle('dev:read-doc-path', async (_event, path: string) => {

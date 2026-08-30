@@ -65,8 +65,8 @@ const api = {
   devExportState: (): Promise<unknown> => ipcRenderer.invoke('dev:export-state'),
   saveDoc: (doc: LayoutDoc): Promise<string | null> => ipcRenderer.invoke('doc:save', doc),
   openDoc: (): Promise<LayoutDoc | null> => ipcRenderer.invoke('doc:open'),
-  exportPdf: (doc: LayoutDoc, savePath?: string): Promise<string | null> =>
-    ipcRenderer.invoke('export:pdf', doc, savePath),
+  exportPdf: (doc: LayoutDoc, savePath?: string, fits?: Record<string, number>): Promise<string | null> =>
+    ipcRenderer.invoke('export:pdf', doc, savePath, fits),
   /** dev 自动化：读取指定路径 .briefy（仅开发模式） */
   readDocPath: (path: string): Promise<string> => ipcRenderer.invoke('dev:read-doc-path', path),
   /** 打印窗口：取待导出文档 / A4 页渲染完成后通知主进程 */

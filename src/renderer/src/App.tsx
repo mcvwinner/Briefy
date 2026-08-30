@@ -106,10 +106,10 @@ declare global {
       openSubscriptionFolder(id: string): Promise<string>
       saveDoc(doc: LayoutDoc): Promise<string | null>
       openDoc(): Promise<LayoutDoc | null>
-      exportPdf(doc: LayoutDoc, savePath?: string): Promise<string | null>
+      exportPdf(doc: LayoutDoc, savePath?: string, fits?: Record<string, number>): Promise<string | null>
       readDocPath(path: string): Promise<string>
       /** 打印窗口：取待导出文档 / A4 页渲染完成后通知主进程 */
-      getExportDoc(): Promise<LayoutDoc | null>
+      getExportDoc(): Promise<{ doc: LayoutDoc; fits?: Record<string, number> } | null>
       renderReady(): Promise<boolean>
       listUserPresets(): Promise<UserPreset[]>
       saveUserPreset(preset: UserPreset): Promise<'saved' | 'name-conflict' | 'error'>
@@ -726,7 +726,11 @@ function App(): React.JSX.Element {
       }
       // PDF 归档 + 记忆写回（摘要优先 AI 提炼：保留关键事实供下期防重复/连载；失败降级为零成本截断）
       const pdfPath = await window.briefy.issuePath(sub.id, stamp)
-      await window.briefy.exportPdf(layout.docRef.current, pdfPath)
+      // 所见即所得：把主窗口收敛后的每槽 fitScale 一并传给打印窗口（禁止重新排版）
+      const fitsForPrint = Object.fromEntries(
+        Object.entries(slotFitsRef.current).map(([id, f]) => [id, f.fit])
+      )
+      await window.briefy.exportPdf(layout.docRef.current, pdfPath, fitsForPrint)
       const slotsForMemory = layout.docRef.current.pages
         .flatMap((p) => p.slots)
         .filter((s) => s.status === 'done' && s.content?.trim())
@@ -1083,9 +1087,10 @@ function App(): React.JSX.Element {
     if (doc) layout.loadDoc(doc, settings?.sources ?? [])
   }
 
-  /** 导出当前文档为 PDF（把文档传给打印窗口逐页渲染 A4） */
+  /** 导出当前文档为 PDF（把文档 + 主窗口收敛后的每槽 fitScale 传给打印窗口，所见即所得） */
   const exportPdf = async (): Promise<void> => {
-    await window.briefy?.exportPdf(layout.doc)
+    const fits = Object.fromEntries(Object.entries(slotFitsRef.current).map(([id, f]) => [id, f.fit]))
+    await window.briefy?.exportPdf(layout.doc, undefined, fits)
   }
 
   /** 套用排版预设 */
@@ -1154,14 +1159,16 @@ function App(): React.JSX.Element {
     else if (preset === null) void refreshUserPresets() // 取消或失败都刷新一下
   }
 
-  // 打印模式：从主进程取待导出文档，逐页渲染真实 A4 版式（与编辑器所见一致），
+  // 打印模式：从主进程取待导出文档 + 主窗口每槽 fitScale 终值（所见即所得：打印窗口禁用收敛循环），
   // 渲染完成后通知主进程执行 printToPDF
   const [printDoc, setPrintDoc] = useState<LayoutDoc | null>(null)
+  const [printFits, setPrintFits] = useState<Record<string, number> | null>(null)
   useEffect(() => {
     if (!PRINT_MODE) return
-    void window.briefy?.getExportDoc?.().then((doc) => {
-      if (!doc) return
-      setPrintDoc(doc)
+    void window.briefy?.getExportDoc?.().then((data) => {
+      if (!data) return
+      setPrintDoc(data.doc)
+      setPrintFits(data.fits ?? null)
       // 等一拍让 A4 页面完成测量/绘制后再通知
       setTimeout(() => void window.briefy?.renderReady?.(), 100)
     })
@@ -1177,6 +1184,7 @@ function App(): React.JSX.Element {
                 page={page}
                 selectedSlotId={null}
                 onSelectSlot={() => undefined}
+                printFits={printFits ?? undefined}
                 prefs={settings?.layout}
                 customRoles={settings?.customRoles}
                 docTitle={printDoc.title}
