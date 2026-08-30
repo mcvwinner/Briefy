@@ -57,6 +57,7 @@ import type { LayoutDoc, Slot, SlotRole } from '../../shared/layout'
 import { ROLE_DEFS, resolveRoleName, reflowManualPage, resolveGeometry } from '../../shared/layout'
 import { PRESETS, buildDocFromPreset } from '../../shared/presets'
 import { toPresetSlots, fromPresetSlots, type UserPreset } from '../../shared/user-preset'
+import { setEagerImages } from './utils/widgets-render'
 // enforceLength（v0.20 引入的截断重组）在 v0.21 起不再被调用，函数与测试保留在 shared/parse.ts 备用
 import { countContentChars, estimateQuota } from '../../shared/parse'
 import {
@@ -1207,13 +1208,39 @@ function App(): React.JSX.Element {
   const [printSettings, setPrintSettings] = useState<AiSettings | null>(null)
   useEffect(() => {
     if (!PRINT_MODE) return
+    // 隐藏窗口不滚动：lazy 图片（配图/二维码）永不触发加载 → PDF 空白；打印窗口全部立即加载
+    setEagerImages(true)
     void window.briefy?.getExportDoc?.().then((data) => {
       if (!data) return
       setPrintDoc(data.doc)
       setPrintFits(data.fits ?? null)
       setPrintSettings(data.settings)
-      // 等一拍让 A4 页面完成测量/绘制后再通知
-      setTimeout(() => void window.briefy?.renderReady?.(), 100)
+      // 等待内容与图片都就绪后再通知：固定 100ms 是竞态赌注（图片未加载完 → 高度突变/空白截取）。
+      // 图片加载完成（或全部失败）+ 双 rAF（确保绘制帧提交）后通知；5s 硬超时兑底防卡死
+      const settle = (): void => {
+        requestAnimationFrame(() => requestAnimationFrame(() => void window.briefy?.renderReady?.()))
+      }
+      const CONVERGE_MS = 350 // 字号收敛每轮一帧（×1.1/×0.9 步进，最多约 4 帧），350ms 足够跑稳
+      const waitForImages = (): void => {
+        const imgs = [...document.querySelectorAll('img')]
+        const pending = imgs.filter((i) => !i.complete)
+        if (pending.length === 0) {
+          setTimeout(settle, CONVERGE_MS)
+          return
+        }
+        let left = pending.length
+        const done = (): void => {
+          if (--left === 0) setTimeout(settle, CONVERGE_MS)
+        }
+        for (const img of pending) {
+          img.addEventListener('load', done, { once: true })
+          img.addEventListener('error', done, { once: true })
+        }
+        // 网络图片卡住兑底：4s 后不等了（与主进程 5s 总兑底留余量）
+        setTimeout(settle, 4000)
+      }
+      // 首帧渲染完成后再查图片（此时 img 才真正插入 DOM）
+      requestAnimationFrame(() => requestAnimationFrame(waitForImages))
     })
   }, [])
   // 打印模式：仅渲染所有页面的干净版式，供 printToPDF 截取。

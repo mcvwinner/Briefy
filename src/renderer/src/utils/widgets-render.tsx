@@ -65,6 +65,14 @@ function Timeline({ params }: { params: Record<string, string> }): ReactNode {
   )
 }
 
+/** 打印/导出模式：图片立即加载。隐藏窗口不滚动，loading="lazy" 的图片永不触发加载 →
+ *  PDF 里配图/二维码直接空白。打印窗口挂载前置位，导出结束无需复位（窗口即弃）。
+ *  模块级标记而非 Context：只需全局一次性开关，避免为单一布尔层层传 props（v0.32.2 修复） */
+let eagerImages = false
+export function setEagerImages(on: boolean): void {
+  eagerImages = on
+}
+
 /** 配图：AI 只给意图（query），生成后由主进程用 Tavily 图搜回填真实 URL。
  *  未回填（无 url）时显示占位提示，不渲染破图 */
 function ImageBlock({ params }: { params: Record<string, string> }): ReactNode {
@@ -73,7 +81,7 @@ function ImageBlock({ params }: { params: Record<string, string> }): ReactNode {
   }
   return (
     <figure className="widget-image">
-      <img src={params.url} alt={params.caption ?? ''} loading="lazy" />
+      <img src={params.url} alt={params.caption ?? ''} loading={eagerImages ? 'eager' : 'lazy'} />
       {params.caption && <figcaption>{renderInlineMarkdown(params.caption)}</figcaption>}
     </figure>
   )
@@ -85,7 +93,7 @@ function QrCode({ params }: { params: Record<string, string> }): ReactNode {
   const src = `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(params.data)}`
   return (
     <div className="widget-qrcode">
-      <img src={src} alt={params.caption ?? 'QR'} loading="lazy" />
+      <img src={src} alt={params.caption ?? 'QR'} loading={eagerImages ? 'eager' : 'lazy'} />
       {params.caption && <div className="widget-qrcode-caption">{renderInlineMarkdown(params.caption)}</div>}
     </div>
   )

@@ -248,6 +248,9 @@ function SlotBox({
   const [fitScale, setFitScale] = useState(1)
   const growingRef = useRef(false)
   const lockedRef = useRef(false)
+  // 打印模式（所见即所得）：字号缩放系数直接用主窗口回传的终值——本地 fitScale 恒为 1，
+  // 若仍用它渲染，PDF 里会以 100% 字号重排，内容变高把后续槽位挤出纸张被裁剪（v0.32.2 修复）
+  const effectiveFit = printScale ?? fitScale
   useEffect(() => {
     if (printScale !== undefined) return // 打印模式：fitScale 锁定，不响应内容变化
     setFitScale(1)
@@ -301,7 +304,7 @@ function SlotBox({
       data-slot-id={slot.id}
       data-role={slot.role}
       style={{
-        ['--briefy-fit' as string]: fitScale,
+        ['--briefy-fit' as string]: effectiveFit,
         ...(fillHeight ? { height: '100%', overflow: 'hidden' } : {})
       } as React.CSSProperties}
       onPointerDown={onPointerDown}
