@@ -1200,6 +1200,7 @@ function App(): React.JSX.Element {
                 page={page}
                 selectedSlotId={null}
                 onSelectSlot={() => undefined}
+                manual={printDoc.layoutMode === 'manual'}
                 printFits={printFits ?? undefined}
                 prefs={printSettings.layout}
                 customRoles={printSettings.customRoles}
