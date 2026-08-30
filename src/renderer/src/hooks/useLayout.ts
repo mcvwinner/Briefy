@@ -114,16 +114,28 @@ export function useLayout(prefs?: LayoutPrefs) {
   )
 
   /** 槽位实际渲染高度超出预估时回写 overflow（PageView 测量触发）。
-   *  自动模式：摊平重排贪心装满；手动模式：只加 overflow 拉高本槽，不动其他槽位 */
+   *  自动模式：摊平重排贪心装满；手动模式：只吸收到页面底边为止（版面锁定——
+   *  小溢出无痕吸收，到页底极限后不再增长（内容被裁剪），由质量报告标记瑕疵，绝不越出纸张边界） */
   const growSlotOverflow = useCallback(
     (slotId: string, deltaMm: number): void => {
+      let changed = false
       const pages = doc.pages.map((p) => {
         if (!p.slots.some((s) => s.id === slotId)) return p
-        const slots = p.slots.map((s) =>
-          s.id === slotId ? { ...s, overflow: (s.overflow ?? 0) + deltaMm } : s
-        )
+        const slots = p.slots.map((s) => {
+          if (s.id !== slotId) return s
+          let delta = deltaMm
+          if (doc.layoutMode === 'manual') {
+            const bottom = geo.pageHeightMM - geo.marginMM
+            delta = Math.min(delta, Math.max(0, bottom - s.region.y - (s.estHeight + (s.overflow ?? 0))))
+            if (delta <= 0) return s // 已到页底极限：引用不变，防测量-回写无限循环
+          }
+          changed = true
+          return { ...s, overflow: (s.overflow ?? 0) + delta }
+        })
+        if (!changed) return p
         return { ...p, slots }
       })
+      if (!changed) return
       if (doc.layoutMode === 'manual') {
         setDoc({ ...doc, pages })
         return
