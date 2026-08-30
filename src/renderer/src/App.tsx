@@ -59,7 +59,7 @@ import { PRESETS, buildDocFromPreset } from '../../shared/presets'
 import { toPresetSlots, fromPresetSlots, type UserPreset } from '../../shared/user-preset'
 import { setEagerImages } from './utils/widgets-render'
 // enforceLength（v0.20 引入的截断重组）在 v0.21 起不再被调用，函数与测试保留在 shared/parse.ts 备用
-import { countContentChars, estimateQuota } from '../../shared/parse'
+import { countContentChars, estimateQuota, quotaRange } from '../../shared/parse'
 import {
   buildIssueSummary,
   buildMemoryBlock,
@@ -549,14 +549,15 @@ function App(): React.JSX.Element {
         rows: slots.map((s) => {
           const len = estimateQuota(s.content ?? '')
           const limit = Math.max(40, Math.round(s.estHeight * 4.5))
-          // 实测适配优先（SlotBox 收敛结果）：溢出才算失败；无实测（未渲染/刷新前）时用估算兑底
+          // 实测适配优先（SlotBox 收敛结果）：溢出才算失败；无实测（未渲染/刷新前）时用估算兑底（quotaRange 口径）
           const fit = slotFits[s.id]
+          const range = quotaRange(limit)
           const ok =
             s.status !== 'done'
               ? null
               : fit
                 ? !fit.overflow
-                : len >= limit * 0.8 && len <= limit * 1.15
+                : len >= range.min && len <= range.max
           return {
             role: resolveRoleName(s, overrides?.customRoles ?? settingsRef.current?.customRoles),
             status: s.status,

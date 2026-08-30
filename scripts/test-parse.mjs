@@ -62,17 +62,16 @@ assert(tl[0].type === 'widget' && tl[0].params.items.includes('15:00|收盘'), '
   assert(!r2.truncated && r2.text === '短文本', '未超限原样返回')
 }
 
-// ---- countContentChars：控件块剥离计字（体积协调口径） ----
+// ---- countContentChars：单行控件剥离计字（v0.34.4 口径对齐渲染层） ----
 {
   const { countContentChars } = await import('../src/shared/parse.ts')
-  // 多行块（:::chart 开块，块内数据行，::: 闭合）全部不计
-  const multi = ['正文三十个字左右的一段话用于验证统计口径是否正确。', ':::chart', '标签一|123', '标签二|456', ':::', '尾部一段话。'].join('\n')
-  const c1 = countContentChars(multi)
-  assert(!c1.toString().includes('0'), '有正文时字数不为零')
-  assert(c1 === 31, `多行控件块内数据行不计入（期望 31，实际 ${c1}）`)
-  // 单行控件（带 {} 参数）不开块，后续正文正常计入
+  // 单行控件（带 {} 参数）剥离，后续正文正常计入
   const single = [':::stat{value:"42" label:"指标"}', '统计之后的正文文字。'].join('\n')
-  assert(countContentChars(single) === 10, `单行控件后续正文计入（期望 10，实际 ${countContentChars(single)}）`)
+  assert(countContentChars(single) === 10, `单行控件剥离（期望 10，实际 ${countContentChars(single)}）`)
+  // 无参 ::: 行（未闭合块）：按文字计——旧逻辑会把后续正文全剥离计 0（误判为空，v0.34.4 修复）
+  const unclosed = [':::chart', '标签一|123', '标签二|456', '未闭合块后的正文要照常计入字数。'].join('\n')
+  const cu = countContentChars(unclosed)
+  assert(cu > 0 && cu === ':::chart标签一|123标签二|456未闭合块后的正文要照常计入字数。'.replace(/\s+/g, '').length, `未闭合块不吞正文（实际 ${cu}）`)
   // 纯文字
   assert(countContentChars('只有文字。') === 5, '纯文字计数')
   assert(countContentChars('') === 0, '空内容为零')
@@ -103,10 +102,22 @@ assert(tl[0].type === 'widget' && tl[0].params.items.includes('15:00|收盘'), '
   // 表格按行折算（v0.34.3 修正）：6 行表（含分隔行）= 6×25=150 等效字，不再按字符低估 3 倍
   const table6 = '| 名称 | 数值 |\n|---|---|\n| a | 1 |\n| b | 2 |\n| c | 3 |\n| d | 4 |'
   assert(estimateQuota(table6) === 150, `表格 6 行折算 150（实际 ${estimateQuota(table6)}）`)
-  // 控件块内的表格行仍按块逻辑处理（chart 数据行用 | 分隔，不受表格折算影响）
-  const chartBlock = [':::chart', '标签一|123', '标签二|456', ':::'].join('\n')
-  const chartQuota = estimateQuota(chartBlock)
-  assert(chartQuota === 194, `非标准多行块按 40mm 底座+块内文字（期望 194，实际 ${chartQuota}）`)
+  // 未闭合非标准块不再吞正文（v0.34.4 修复）：块后正文照常按文字计
+  // 构成：':::chart' 8 字符 + 两行数据（非 | 开头，按文字 7+7）+ 正文 22 = 44；旧逻辑把块后正文全吞掉
+  const unclosed = ':::chart\n标签一|123\n标签二|456\n未闭合块后的这段正文有十八个字左右用于验证。'
+  const uq = estimateQuota(unclosed)
+  assert(uq === 44, `未闭合块后正文照常计数（期望 44，实际 ${uq}）`)
+}
+
+// ---- quotaRange：字数合格区间（v0.34.4：下限 85%，大槽位固定冗余） ----
+{
+  const { quotaRange } = await import('../src/shared/parse.ts')
+  const small = quotaRange(200)
+  assert(small.min === 170 && small.max === 230, `小槽位比例 85%~115%（实际 ${small.min}~${small.max}）`)
+  const big = quotaRange(2000)
+  assert(big.min === 1900 && big.max === 2150, `大槽位固定冗余 -100/+150（实际 ${big.min}~${big.max}）`)
+  const edge = quotaRange(600)
+  assert(edge.min === 510 && edge.max === 690, `边界 600 字仍用比例（实际 ${edge.min}~${edge.max}）`)
 }
 
 // ---- widgetQuotaHint：控件等效成本提示词（与 estimateQuota 同口径，v0.34.3） ----

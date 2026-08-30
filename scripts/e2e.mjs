@@ -130,17 +130,10 @@ const result = await cdp.evalJs(`(() => {
   const estimateQuota = (content) => {
     const CHAR_PER_MM = 4.5
     let total = 0
-    let blockLines = null
-    const closeBlock = () => {
-      if (blockLines) {
-        total += Math.round(40 * CHAR_PER_MM) + blockLines.join('').replace(/\\s+/g, '').length
-        blockLines = null
-      }
-    }
     for (const raw of content.split('\\n')) {
       const line = raw.trim()
       if (line.startsWith(':::')) {
-        closeBlock()
+        // v0.34.4 口径对齐渲染层：仅可解析的单行控件按控件折算；无参 ::: 行按普通文字计（不吞正文）
         const m = line.match(/^:::(\\w+)\\{(.*)\\}\\s*$/)
         if (m) {
           const params = {}
@@ -156,17 +149,15 @@ const result = await cdp.evalJs(`(() => {
           }
           continue
         }
-        if (/^:::\\w/.test(line)) blockLines = []
-        continue
       }
-      if (blockLines) { blockLines.push(raw); continue }
       // 表格行按行折算（v0.34.3 与 shared/parse.ts 同口径）：9pt 固定字号行高 ≈5.5mm
       if (line.startsWith('|')) { total += Math.round(5.5 * CHAR_PER_MM); continue }
       total += raw.replace(/\\s+/g, '').length
     }
-    closeBlock()
     return total
   }
+  // 字数合格区间（v0.34.4 与 shared/parse.ts 的 quotaRange 同口径）：小槽位比例 85%~115%，大槽位固定冗余
+  const quotaRange = (limit) => limit > 600 ? { min: limit - 100, max: limit + 150 } : { min: Math.round(limit * 0.85), max: Math.round(limit * 1.15) }
   const doc = window.__briefyGetDoc()
   const slots = doc.pages.flatMap(p => p.slots)
   return {
@@ -209,10 +200,13 @@ const q = result.quality
 const issues = []
 // 空内容（纯控件槽位字数为 0 是合法形态，不算空）
 for (const s of q) if (s.len === 0 && !s.content.includes(':::')) issues.push(`[FAIL] ${s.role}：内容为空`)
-// 字数偏差检查（可接受区间 80%~115%，区间外交给渲染层字号/槽位微调，仅 WARN 不 FAIL；纯控件槽位跳过）
-for (const s of q) if (s.len > s.limit * 1.15) issues.push(`[WARN] ${s.role}：字数 ${s.len} 超目标 ${s.limit}（超 15%）`)
-for (const s of q) if (s.len < s.limit * 0.8 && !(s.len === 0 && s.content.includes(':::')))
-  issues.push(`[WARN] ${s.role}：字数 ${s.len} 不足目标 ${s.limit} 的 80%`)
+// 字数偏差检查（quotaRange 口径 v0.34.4：小槽位 85%~115%，大槽位固定冗余 -100/+150；纯控件槽位跳过）
+for (const s of q) {
+  if (s.len === 0 && s.content.includes(':::')) continue
+  const range = quotaRange(s.limit)
+  if (s.len > range.max) issues.push(`[WARN] ${s.role}：字数 ${s.len} 超出合格上限 ${range.max}（目标 ${s.limit}）`)
+  else if (s.len < range.min) issues.push(`[WARN] ${s.role}：字数 ${s.len} 低于合格下限 ${range.min}（目标 ${s.limit}）`)
+}
 // 槽间相似度粗检（两两比对，> 0.35 视为疑似重复）
 for (let i = 0; i < q.length; i++) {
   for (let j = i + 1; j < q.length; j++) {

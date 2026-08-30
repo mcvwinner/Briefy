@@ -38,22 +38,15 @@ export function widgetQuotaHint(): string {
 /**
  * 统计内容的等效字数（体积协调口径）：正文文字照计；图形型控件按占版面积折算（高度mm×4.5字/mm），
  * 文字型控件（quote/info）参数文字照计并加底高——让字数重新反映槽位体积，控件不再"隐形"。
- * 多行块（AI 非标准写法 :::id 无参数）按 40mm 底座 + 块内文字容错估算。
+ * v0.34.4 口径对齐渲染层：仅可解析的单行控件按控件折算；无参 ::: 行按普通文字计（渲染层就是这样渲染的）。
+ * 此前的"多行块容错"会吞掉未闭合块后的全部正文（AI 忘写 ::: 闭合时），导致估计≈0、被误判为空——已废弃。
  */
 export function estimateQuota(content: string): number {
   const CHAR_PER_MM = 4.5
   let total = 0
-  let blockLines: string[] | null = null
-  const closeBlock = (): void => {
-    if (blockLines) {
-      total += Math.round(40 * CHAR_PER_MM) + blockLines.join('').replace(/\s+/g, '').length
-      blockLines = null
-    }
-  }
   for (const raw of content.split('\n')) {
     const line = raw.trim()
     if (line.startsWith(':::')) {
-      closeBlock()
       const w = parseWidgetLine(line)
       if (w) {
         const est = WIDGET_HEIGHT_MM[w.id]
@@ -66,12 +59,7 @@ export function estimateQuota(content: string): number {
         }
         continue
       }
-      if (/^:::\w/.test(line)) blockLines = [] // 非标准多行块：开块容错
-      continue
-    }
-    if (blockLines) {
-      blockLines.push(raw)
-      continue
+      // 无参 ::: 行：渲染层按普通段落文字渲染（parseContent 解析失败回落段落），估计同口径按文字计
     }
     // 表格行按行折算（v0.34.3）：9pt 固定字号+内边距，行高 ≈5.5mm，与渲染实测一致；
     // 按字符计数会低估 3 倍（| 名称 | 数值 | 去空白仅 ~8 字，渲染却是 5.5mm 高的一行）
@@ -81,33 +69,33 @@ export function estimateQuota(content: string): number {
     }
     total += raw.replace(/\s+/g, '').length
   }
-  closeBlock()
   return total
 }
 
 /**
- * 统计内容的有效文字数：完整剥离 ::: 控件块（含块内数据行，如图表数据、时间线条目），
- * 只计正文文字——字数协调/质量报告反映的是文字体积，控件自身体积由渲染层实测适配。
- * 带参数的单行控件（如 :::stat{...}）不开启剥离块；无参数的 :::id 视为开块，直到 :::/下一个控件行闭合。
+ * 统计内容的有效文字数：剥离可解析的单行控件行，只计正文文字。
+ * v0.34.4 口径对齐渲染层：无参 ::: 行（渲染为普通段落）也计入文字——
+ * 此前的"多行块剥离"会把未闭合块后的正文全部剥掉，字数计 0 → 被误判为纯控件/空内容。
  */
 export function countContentChars(content: string): number {
-  let inBlock = false
   let count = 0
   for (const raw of content.split('\n')) {
     const line = raw.trim()
-    if (line.startsWith(':::')) {
-      const singleLine = /^:::\w+\s*\{/.test(line)
-      if (inBlock) {
-        inBlock = singleLine ? false : line !== ':::' // 块内：纯 ':::' 闭合；':::xxx' 异常结束并开新块
-      } else {
-        inBlock = !singleLine
-      }
-      continue
-    }
-    if (inBlock) continue
+    if (line.startsWith(':::') && parseWidgetLine(line)) continue // 可解析的单行控件行不计
     count += raw.replace(/\s+/g, '').length
   }
   return count
+}
+
+/**
+ * 字数合格区间（v0.34.4）：小槽位按比例（85%~115%，用户约定下限自 80% 提升）；
+ * 大槽位（上限 >600 字）改用固定字数冗余——比例冗余在大槽位上失真（2000 字槽的 ±15% = ±300 字，
+ * AI 偏差被放大），固定冗余（-100/+150）让超大槽位的字数下限不再滑坡。
+ * 长度协调退稿判断与质量报告合格判定共用此口径（单一事实源）。
+ */
+export function quotaRange(limit: number): { min: number; max: number } {
+  if (limit > 600) return { min: limit - 100, max: limit + 150 }
+  return { min: Math.round(limit * 0.85), max: Math.round(limit * 1.15) }
 }
 
 /** 解析后的内容节点流：段落 / 小标题 / 控件 */
