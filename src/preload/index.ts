@@ -56,6 +56,13 @@ const api = {
     overrides?: Partial<AiSettings>
   ): Promise<{ headline: string; points: string[] }> =>
     ipcRenderer.invoke('ai:summarize-issue', generationId, articles, overrides),
+  /** 长期总览压缩：AI 整合旧 digest 与新增期摘要（失败由调用方降级拼接） */
+  compressDigest: (
+    generationId: string,
+    oldDigest: string,
+    overflow: { issuedAt: string; headline: string; points: string[] }[],
+    overrides?: Partial<AiSettings>
+  ): Promise<string> => ipcRenderer.invoke('ai:compress-digest', generationId, oldDigest, overflow, overrides),
   /** 生成过程心跳（AI 流式输出增量，ROADMAP Q2 反馈）；返回去注册函数 */
   onHeartbeat: (cb: (generationId: string, delta: string) => void): (() => void) => {
     const listener = (_event: IpcRendererEvent, id: string, delta: string): void => cb(id, delta)

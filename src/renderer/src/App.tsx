@@ -59,7 +59,15 @@ import { PRESETS, buildDocFromPreset } from '../../shared/presets'
 import { toPresetSlots, fromPresetSlots, type UserPreset } from '../../shared/user-preset'
 // enforceLength（v0.20 引入的截断重组）在 v0.21 起不再被调用，函数与测试保留在 shared/parse.ts 备用
 import { countContentChars, estimateQuota } from '../../shared/parse'
-import { buildIssueSummary, buildMemoryBlock, isSerialPrompt, rollMemory, type Subscription } from '../../shared/subscription'
+import {
+  buildIssueSummary,
+  buildMemoryBlock,
+  isSerialPrompt,
+  retrieveRelevantPast,
+  rollMemory,
+  RECENT_MEMORY_LIMIT,
+  type Subscription
+} from '../../shared/subscription'
 declare global {
   interface Window {
     briefy?: {
@@ -94,6 +102,13 @@ declare global {
         articles: { role: string; content: string }[],
         overrides?: Partial<AiSettings>
       ): Promise<{ headline: string; points: string[] }>
+      /** 长期总览压缩：AI 整合旧 digest 与新增期摘要（失败由调用方降级拼接） */
+      compressDigest(
+        generationId: string,
+        oldDigest: string,
+        overflow: { issuedAt: string; headline: string; points: string[] }[],
+        overrides?: Partial<AiSettings>
+      ): Promise<string>
       onHeartbeat(cb: (generationId: string, delta: string) => void): () => void
       devExportState(): Promise<unknown>
       /** 选择本地文件作为参考源（返回 null = 用户取消） */
@@ -616,6 +631,14 @@ function App(): React.JSX.Element {
     for (const page of docClone.pages) {
       for (const slot of page.slots) {
         let prefix = memBlock
+        // 相关往期检索（v0.33）：本槽主题在更早期内容中找相似片段，注入差异化指令（排除上期——同槽查重已覆盖，连载线另有全文注入）
+        const related = retrieveRelevantPast(slot.prompt, sub.issues, lastIssue?.id)
+        if (related.length > 0) {
+          prefix +=
+            '【相关往期内容（与本栏主题相关，本期必须差异化，不得复述）】\n' +
+            related.map((r) => `【${r.issuedAt}·${r.role}】${r.snippet}`).join('\n') +
+            '\n\n'
+        }
         // 连载线直通：提示词含续写意图 → 注入上一期该栏完整内容
         if (isSerialPrompt(slot.prompt) && lastIssue) {
           const roleName = resolveRoleName(slot, sub.template.customRoles)
@@ -749,7 +772,25 @@ function App(): React.JSX.Element {
       } catch {
         summary = buildIssueSummary(layout.docRef.current, issuedAt)
       }
-      const memory = rollMemory(sub.memory, summary)
+      // 记忆滚动（v0.33）：digest 溢出时先 AI 压缩整合（失败降级为 rollMemory 的字符串拼接）
+      let memory = rollMemory(sub.memory, summary)
+      const recentPlus = [...sub.memory.recent, summary]
+      if (recentPlus.length > RECENT_MEMORY_LIMIT) {
+        const overflow = recentPlus.slice(0, recentPlus.length - RECENT_MEMORY_LIMIT)
+        try {
+          const cId = crypto.randomUUID()
+          inFlightRef.current.add(cId)
+          try {
+            const digest = (await window.briefy.compressDigest(cId, sub.memory.digest, overflow, overrides)).trim()
+            if (digest) memory = { recent: memory.recent, digest }
+          } finally {
+            void window.briefy.cancelGeneration(cId)
+            inFlightRef.current.delete(cId)
+          }
+        } catch {
+          /* AI 压缩失败：保留 rollMemory 的降级拼接结果 */
+        }
+      }
       const record = {
         id: crypto.randomUUID(),
         issuedAt,

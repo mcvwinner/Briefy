@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, nativeTheme } from 'electron'
 import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { DEFAULT_SETTINGS, type AiSettings, type InfoSource, type ThemeMode } from '../shared/settings'
-import { generateSlotContent, planIssue, reviewIssue, resolveImageQueries, summarizeIssue } from './ai'
+import { generateSlotContent, planIssue, reviewIssue, resolveImageQueries, summarizeIssue, compressDigest } from './ai'
 import type { DocContext } from './ai'
 import { fetchPageText, readLocalSourceText } from './tools'
 import type { ToolId } from '../shared/layout'
@@ -255,6 +255,26 @@ export function registerSettingsIpc(): void {
         return await summarizeIssue(settings, articles ?? [], controller.signal, (delta) =>
           _event.sender.send('ai:heartbeat', generationId, delta)
         )
+      } finally {
+        activeGenerations.delete(generationId)
+      }
+    }
+  )
+  /** 长期总览压缩（v0.33 记忆升级）：AI 整合旧 digest 与新增期摘要，失败由调用方降级拼接 */
+  ipcMain.handle(
+    'ai:compress-digest',
+    async (
+      _event,
+      generationId: string,
+      oldDigest: string,
+      overflow: { issuedAt: string; headline: string; points: string[] }[],
+      overrides?: Partial<AiSettings>
+    ) => {
+      const settings = readSettingsWith(await readSettings(), overrides)
+      const controller = new AbortController()
+      activeGenerations.set(generationId, controller)
+      try {
+        return await compressDigest(settings, oldDigest ?? '', overflow ?? [], controller.signal)
       } finally {
         activeGenerations.delete(generationId)
       }

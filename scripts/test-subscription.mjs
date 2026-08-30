@@ -45,3 +45,34 @@ assert(isSerialPrompt('连载第二话'), '连载')
 assert(!isSerialPrompt('写一篇全新的报道'), '无续写意图')
 
 console.log('✅ 订阅共享逻辑全部断言通过')
+
+// ---- v0.33 记忆升级：3-gram 相似度 / 相关往期检索 / 降级拼接 / AI 压缩参数 ----
+const { similarity, retrieveRelevantPast, mergeDigestFallback } = await import('../src/shared/subscription.ts')
+
+assert(similarity('人工智能技术发展', '人工智能技术的最新发展迅速') > 0.3, '相似文本得分高')
+assert(similarity('量子计算突破', '今天天气不错适合郊游') < 0.05, '无关文本得分低')
+assert(similarity('', '任意文本') === 0, '空串得分为 0')
+
+const pastIssues = [
+  { id: 'i1', issuedAt: 'D1', pdfPath: '', quality: { passed: true, issues: [], repaired: 0 }, summary: { issuedAt: 'D1', headline: '', points: [] }, slots: [{ role: '数据', content: '新能源汽车销量突破五百万辆，同比增长三成，充电桩建设加速推进覆盖全国' }] },
+  { id: 'i2', issuedAt: 'D2', pdfPath: '', quality: { passed: true, issues: [], repaired: 0 }, summary: { issuedAt: 'D2', headline: '', points: [] }, slots: [{ role: '头条', content: '航天员完成出舱活动，空间站建设进入新阶段，后续任务排定' }] }
+]
+const related = retrieveRelevantPast('分析新能源汽车市场最新销量数据', pastIssues, undefined)
+assert(related.length === 1 && related[0].role === '数据', '检索命中相关槽位')
+assert(related[0].snippet.includes('新能源'), '片段来自相关内容')
+const relatedEx = retrieveRelevantPast('分析新能源汽车市场最新销量数据', pastIssues, 'i1')
+assert(relatedEx.length === 0, '排除指定期后不命中')
+const relatedIrrel = retrieveRelevantPast('今天食堂菜单有什么', pastIssues, undefined)
+assert(relatedIrrel.length === 0, '无关主题不注入')
+assert(retrieveRelevantPast('', pastIssues, undefined).length === 0, '空提示词不检索')
+
+const fb = mergeDigestFallback('旧总览', [{ issuedAt: 'D9', headline: '新头条', points: ['要点一', '要点二'] }])
+assert(fb.includes('旧总览') && fb.includes('D9') && fb.includes('要点一'), '降级拼接保留旧总览与新增期')
+assert(mergeDigestFallback('', [{ issuedAt: 'D9', headline: 'H', points: [] }]).startsWith('【D9】'), '无旧总览时直接拼接')
+
+// ---- rollMemory 第三参：AI 压缩 digest 优先于降级拼接 ----
+const memAi = rollMemory(mem, buildIssueSummary(doc(['第4期内容']), 'D4'), 'AI整合后的总览')
+assert(memAi.digest === 'AI整合后的总览', 'AI 压缩结果生效')
+assert(memAi.recent.length === 3, 'AI 压缩下 recent 仍滚动')
+
+console.log('✅ 订阅共享逻辑全部断言通过（含 v0.33 记忆升级）')

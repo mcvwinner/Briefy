@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { AiSettings } from '../shared/settings'
 import type { ToolId } from '../shared/layout'
+import type { IssueSummary } from '../shared/subscription'
 import { ROLE_DEFS, type SlotRole } from '../shared/layout'
 import { tavilySearch, tavilyImageSearch, fetchPageText } from './tools'
 import { buildWidgetPromptSection } from '../shared/widgets'
@@ -711,4 +712,30 @@ export async function summarizeIssue(
   ]
   const raw = await chatOnce(settings, messages, signal, settings.editorial?.reviewModel, onTick)
   return SUMMARY_SCHEMA.parse(extractJson(raw))
+}
+
+/**
+ * 长期总览压缩（v0.33 订阅记忆升级）：旧 digest + 新增期摘要 → AI 整合为一份精炼总览。
+ * 保留关键事实，去除过时表述，总长不超 400 字。失败抛异常，调用方降级字符串拼接。
+ */
+export async function compressDigest(
+  settings: AiSettings,
+  oldDigest: string,
+  overflow: IssueSummary[],
+  signal?: AbortSignal
+): Promise<string> {
+  const messages = [
+    {
+      role: 'system' as const,
+      content:
+        '你是报纸档案员，把往期总览与新几期摘要整合成一份精炼的长期总览（供后续出刊避免重复、延续线索）。保留关键事实（数字/名称/事件），去除过时表述，总长不超过 400 字。只输出整合后的总览正文。'
+    },
+    {
+      role: 'user' as const,
+      content: `【现有长期总览】\n${oldDigest || '（无）'}\n\n【新增期摘要】\n${overflow
+        .map((s) => `【${s.issuedAt}】${s.headline}\n${s.points.join('\n')}`)
+        .join('\n\n')}`
+    }
+  ]
+  return (await chatOnce(settings, messages, signal)).trim()
 }

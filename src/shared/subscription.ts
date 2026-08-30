@@ -67,27 +67,40 @@ export function buildIssueSummary(doc: LayoutDoc, issuedAt: string): IssueSummar
   }
 }
 
-/** 记忆滚动：recent 超 3 期则最旧一期并入 digest（首版字符串合并，预留 AI 合并升级） */
-export function rollMemory(memory: Subscription['memory'], summary: IssueSummary): Subscription['memory'] {
+/** 记忆滚动：recent 超 3 期则最旧一期并入 digest（compressedDigest 传入时用 AI 压缩结果，否则降级拼接） */
+export function rollMemory(
+  memory: Subscription['memory'],
+  summary: IssueSummary,
+  compressedDigest?: string
+): Subscription['memory'] {
   const recent = [...memory.recent, summary]
-  if (recent.length <= RECENT_MEMORY_LIMIT) return { recent, digest: memory.digest }
+  if (recent.length <= RECENT_MEMORY_LIMIT)
+    return { recent, digest: compressedDigest ?? memory.digest }
   const overflow = recent.slice(0, recent.length - RECENT_MEMORY_LIMIT)
   const kept = recent.slice(recent.length - RECENT_MEMORY_LIMIT)
   const merged = overflow
     .map((s) => `【${s.issuedAt}】${s.headline}；${s.points.join('；')}`)
     .join('\n')
-  const digest = memory.digest ? `${memory.digest}\n${merged}` : merged
+  const digest = compressedDigest ?? (memory.digest ? `${memory.digest}\n${merged}` : merged)
   return { recent: kept, digest }
 }
 
-/** 组装记忆前缀（注入每槽 prompt）：往期总览 + 最近摘要 + 去重指令；无记忆返回空串 */
-export function buildMemoryBlock(memory: Subscription['memory']): string {
-  if (memory.recent.length === 0 && !memory.digest) return ''
+/** 组装记忆前缀（注入每槽 prompt）：往期总览 + 最近摘要 + 相关片段（差异化）+ 去重指令；无记忆返回空串。
+ *  relatedPast：与该槽主题相关的往期片段（出刊前检索），注入差异化要求。 */
+export function buildMemoryBlock(
+  memory: Subscription['memory'],
+  relatedPast?: { issuedAt: string; role: string; snippet: string }[]
+): string {
+  if (memory.recent.length === 0 && !memory.digest && (!relatedPast || relatedPast.length === 0)) return ''
   const parts: string[] = ['===== 往期内容提要（订阅记忆） =====']
   if (memory.digest.trim()) parts.push(`【往期总览（更早各期）】\n${memory.digest.trim()}`)
   memory.recent.forEach((s, i) => {
     parts.push(`【最近第 ${memory.recent.length - i} 期 · ${s.issuedAt}】头条：${s.headline}\n${s.points.join('\n')}`)
   })
+  if (relatedPast && relatedPast.length > 0) {
+    parts.push('【相关往期内容（与本栏主题相关，本期必须差异化，不得复述）】')
+    for (const r of relatedPast) parts.push(`【${r.issuedAt}·${r.role}】${r.snippet}`)
+  }
   parts.push('出刊要求：本期内容不得重复往期已报道的角度与事实，需提供新的信息或视角；若提示词要求「继续/连载」，则在往期基础上自然延续。')
   parts.push('===== 往期提要结束 =====')
   return parts.join('\n') + '\n\n'
@@ -96,4 +109,89 @@ export function buildMemoryBlock(memory: Subscription['memory']): string {
 /** 连载线检测：提示词含续写意图关键词 */
 export function isSerialPrompt(prompt: string): boolean {
   return /继续|连载|昨天|上次|上一期/.test(prompt)
+}
+
+/** 3-gram 集合（防重复/相关性检索共用口径） */
+export function gramSet(text: string): Set<string> {
+  const s = text.replace(/\s+/g, '')
+  const set = new Set<string>()
+  for (let i = 0; i < s.length - 2; i++) set.add(s.slice(i, i + 3))
+  return set
+}
+
+/** 字面相似度（3-gram 覆盖度：a 的 gram 在 b 中的占比，0~1） */
+export function similarity(a: string, b: string): number {
+  const ga = gramSet(a)
+  if (ga.size === 0) return 0
+  const gb = gramSet(b)
+  let hit = 0
+  for (const g of ga) if (gb.has(g)) hit++
+  return hit / ga.size
+}
+
+export interface RelatedPast {
+  issuedAt: string
+  role: string
+  snippet: string
+  score: number
+}
+
+/**
+ * 相关往期检索：本期槽提示词在往期全文中找最相关片段（注入后要求差异化，防重复更精准）。
+ * 长文按 200 字窗口/100 字步长切块评分；同 issue+role 只留最高分；返回按分数降序前 topK。
+ * excludeIssueId：排除上一期（连载线已注入其全文，避免重复注入）。
+ */
+export function retrieveRelevantPast(
+  prompt: string,
+  issues: IssueRecord[],
+  excludeIssueId: string | undefined,
+  topK = 2
+): RelatedPast[] {
+  const grams = gramSet(prompt)
+  if (grams.size === 0) return []
+  const WIN = 200
+  const STEP = 100
+  const scored: RelatedPast[] = []
+  for (const issue of issues) {
+    if (issue.id === excludeIssueId) continue
+    for (const s of issue.slots) {
+      if (!s.content.trim()) continue
+      const windows: string[] =
+        s.content.length <= WIN
+          ? [s.content]
+          : (() => {
+              const arr: string[] = []
+              for (let i = 0; i + WIN <= s.content.length; i += STEP) arr.push(s.content.slice(i, i + WIN))
+              if (arr.length === 0) arr.push(s.content)
+              return arr
+            })()
+      let best = 0
+      let bestSnippet = ''
+      for (const w of windows) {
+        const score = similarity(prompt, w)
+        if (score > best) {
+          best = score
+          bestSnippet = w
+        }
+      }
+      if (best > 0.08) scored.push({ issuedAt: issue.issuedAt, role: s.role, snippet: bestSnippet.slice(0, 200), score: best })
+    }
+  }
+  scored.sort((a, b) => b.score - a.score)
+  const seen = new Set<string>()
+  const result: RelatedPast[] = []
+  for (const r of scored) {
+    const k = r.issuedAt + '|' + r.role
+    if (seen.has(k)) continue
+    seen.add(k)
+    result.push(r)
+    if (result.length >= topK) break
+  }
+  return result
+}
+
+/** 降级拼接：digest 溢出合并（AI 压缩失败时的兜底） */
+export function mergeDigestFallback(oldDigest: string, overflow: IssueSummary[]): string {
+  const merged = overflow.map((s) => `【${s.issuedAt}】${s.headline}；${s.points.join('；')}`).join('\n')
+  return oldDigest ? `${oldDigest}\n${merged}` : merged
 }
