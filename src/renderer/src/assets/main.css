@@ -315,6 +315,20 @@
 }
 
 /* 打印/导出模式（?print=1，供 printToPDF 截取的干净版式） ---------- */
+/* @page 显式声明纸张与零边距（v0.34.2）：不声明时用浏览器默认，配合 body 的 UA 默认 8px margin
+   会把 210mm 内容挤出纸宽 → Chrome 打印引擎整体缩放（~0.99×）塞回纸内 → 字号变小、分页错位、
+   每页底部被推出纸张截断。@page margin 0 + body margin 0 后 210mm 恰好填满纸宽，零缩放零偏移 */
+@page {
+  size: A4;
+  margin: 0;
+}
+
+@media print {
+  body {
+    margin: 0 !important;
+  }
+}
+
 /* 逐页渲染真实 A4 版式（PageView 的 sheet 是 210×297mm），每页强制分页，
    物理尺寸由 sheet 自身保证，内容永不突破纸张 */
 .print-view {

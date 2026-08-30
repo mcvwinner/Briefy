@@ -119,6 +119,8 @@
 
 - [x] 设置项：来源署名开关 + 实验开关迁移（v0.34.1：LayoutPrefs.showSources 默认开，关后预览/导出均不渲染来源署名；「订阅出刊自动适配版面」自订阅创建对话框迁至设置→实验性（AiSettings.experimentalLayoutFit），设置显式存布尔可覆盖旧订阅遗留字段（教训：布尔开关跨迁移时存 undefined 会让旧值永远赢，必须显式写 false））
 
+- [x] 打印几何修复（v0.34.2：末页底侧截断根因=打印窗口 body UA 默认 8px margin 从未清零——水平挤出纸宽触发 Chrome 打印整体缩放(~0.99×)+垂直每页底推 2mm；修=main.css @page A4 margin0 + @media print body margin0 + JS 双保险；探针 probe-print-geo.mjs 实测 margin=0/纸面(0,0)/sheet 精确 210×297/PDF MediaBox 标准 A4；教训：屏幕 CSS mm 是 96dpi 固定换算，Windows 显示缩放让屏幕纸面"偏小"属正常；Griffel 哈希类名无法用 [class*="语义名"] 选择，探针须用 .print-page > div）
+
 ## 7. P6 增强能力包计划（v0.12 起，已与用户对齐）
 
 原则：全部做成**设置可选项**，默认值 = 现有稳定体验；实验功能集中在"实验性"分区，稳定即转正并移除开关。

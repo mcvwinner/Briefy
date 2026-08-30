@@ -1213,6 +1213,9 @@ function App(): React.JSX.Element {
     if (!PRINT_MODE) return
     // 隐藏窗口不滚动：lazy 图片（配图/二维码）永不触发加载 → PDF 空白；打印窗口全部立即加载
     setEagerImages(true)
+    // body UA 默认 8px margin 会把 210mm 纸面挤出打印页宽（触发 Chrome 整体缩放 + 底部截断）——
+    // @media print 的 CSS reset 是主通道，这里 JS 再设一次双保险（屏幕预览态也直接归零，所见即所得）
+    document.body.style.margin = '0'
     void window.briefy?.getExportDoc?.().then((data) => {
       if (!data) return
       setPrintDoc(data.doc)
