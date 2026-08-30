@@ -12,8 +12,23 @@ export interface SearchResult {
 /**
  * Tavily 搜索（专为 LLM 设计的搜索 API，返回干净摘要）。
  * 文档：https://docs.tavily.com
+ * 带当日缓存（v0.33.2）：同一查询词跨槽位共享结果——相邻槽位常搜相似主题，
+ * 缓存命中即省一次 API 往返，也省掉后续轮次重复携带相同搜索结果的 token。
  */
 export async function tavilySearch(apiKey: string, query: string): Promise<SearchResult[]> {
+  const key = normalizeQuery(query)
+  const cached = getCachedSearchResults(key)
+  if (cached) return cached
+  // in-flight 合并（v0.33.2）：槽位生成是 3 路并发，相邻槽位同词搜索会同时未命中缓存
+  // （惊群）。相同查询词的并发调用共用同一个请求 Promise，只发一次 API。
+  const inflight = inflightSearches.get(key)
+  if (inflight) return inflight
+  const task = doSearch(apiKey, query, key).finally(() => inflightSearches.delete(key))
+  inflightSearches.set(key, task)
+  return task
+}
+
+async function doSearch(apiKey: string, query: string, key: string): Promise<SearchResult[]> {
   const res = await fetch('https://api.tavily.com/search', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -22,7 +37,37 @@ export async function tavilySearch(apiKey: string, query: string): Promise<Searc
   })
   if (!res.ok) throw new Error(`Tavily 搜索失败 (${res.status})`)
   const data = (await res.json()) as { results?: SearchResult[] }
-  return data.results ?? []
+  const results = data.results ?? []
+  putCachedSearchResults(key, results)
+  return results
+}
+
+/** 查询词归一化：trim + 小写 + 压缩空白（同一主题不同写法命中同一缓存） */
+function normalizeQuery(query: string): string {
+  return query.trim().toLowerCase().replace(/\s+/g, ' ')
+}
+
+/** 搜索结果当日缓存 + 进行中请求表：key = 归一化查询词，日期变更即失效 */
+const searchCache = new Map<string, { date: string; results: SearchResult[] }>()
+const inflightSearches = new Map<string, Promise<SearchResult[]>>()
+
+function getCachedSearchResults(key: string): SearchResult[] | undefined {
+  const hit = searchCache.get(key)
+  if (!hit) return undefined
+  if (hit.date !== new Date().toDateString()) {
+    searchCache.delete(key) // 隔日失效：时效内容不跨天复用
+    return undefined
+  }
+  return hit.results
+}
+
+function putCachedSearchResults(key: string, results: SearchResult[]): void {
+  // 防膨胀：超过 100 条时清最旧的（实际出刊一次约 10-30 个不同查询词，远达不到上限）
+  if (searchCache.size >= 100) {
+    const oldest = searchCache.keys().next().value
+    if (oldest !== undefined) searchCache.delete(oldest)
+  }
+  searchCache.set(key, { date: new Date().toDateString(), results })
 }
 
 /** Tavily 图片搜索（ROADMAP Q3 配图闭环）：返回图片 URL 列表 */
