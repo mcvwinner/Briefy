@@ -242,6 +242,31 @@ export function paginate(pages: Page[], geo: LayoutGeometry = resolveGeometry())
 
 // ---------- 旧格式迁移 ----------
 
+/**
+ * 手动布局单页列内流式重排（v0.31 订阅版面适配）：
+ * 保持槽位 x/width/列归属/列内顺序不变，y 按列内顺序累加重排——
+ * 每列第一个槽位 y 锚定原位（保留用户的版面起点），后续槽位紧随其下（消除空隙/吸收增高）。
+ * 不丢槽位、不改分页、不改列结构——只动槽位的纵向位置。
+ */
+export function reflowManualPage(slots: Slot[], geo: LayoutGeometry = resolveGeometry()): Slot[] {
+  const colKey = (s: Slot): number => Math.round(s.region.x / 10)
+  const tails = new Map<number, number>()
+  return slots.map((s) => {
+    const key = colKey(s)
+    let y = s.region.y
+    const tail = tails.get(key)
+    if (tail === undefined) {
+      // 列内第一个槽：锚定原位（保留用户的版面起点）
+      tails.set(key, y + s.estHeight + (s.overflow ?? 0) + geo.gapMM)
+    } else {
+      // 后续槽：紧随上一槽之下（消除空隙/吸收增高）
+      y = Math.max(tail, y)
+      tails.set(key, y + s.estHeight + (s.overflow ?? 0) + geo.gapMM)
+    }
+    return { ...s, region: { ...s.region, y } }
+  })
+}
+
 /** 旧版 Block（v1）最小结构 */
 interface LegacyBlock {
   id?: string

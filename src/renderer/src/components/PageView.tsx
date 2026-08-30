@@ -232,8 +232,8 @@ function SlotBox({
   onResizeStart?: (e: React.PointerEvent) => void
   onPointerDown: (e: React.PointerEvent) => void
   onOverflow?: (slotId: string, deltaMm: number) => void
-  /** 实测适配状态回写（收敛后的字号比例与是否溢出；质量报告以实测为准） */
-  onFit?: (slotId: string, fitScale: number, overflow: boolean) => void
+  /** 实测适配状态回写（字号比例/是否溢出/内容实际高度；质量报告与版面适配以实测为准） */
+  onFit?: (slotId: string, fitScale: number, overflow: boolean, actualMm: number) => void
   children: ReactNode
 }): React.JSX.Element {
   const styles = useStyles()
@@ -259,7 +259,7 @@ function SlotBox({
     const limit = slot.estHeight + (slot.overflow ?? 0)
     // 自由创作槽（v0.29）：不限字数格式——跳过字号缩放与溢出腾挪，内容自然流
     if (slot.role === 'free') {
-      if (slot.status === 'done') onFit?.(slot.id, 1, false)
+      if (slot.status === 'done') onFit?.(slot.id, 1, false, actualMm)
       return
     }
     let overflowing = false
@@ -283,7 +283,7 @@ function SlotBox({
       growingRef.current = false
     }
     // 实测结果回写（App 端去重，同值不触发重渲染）；生成中不上报（内容未完，无适配意义）
-    if (slot.status === 'done') onFit?.(slot.id, fitScale, overflowing)
+    if (slot.status === 'done') onFit?.(slot.id, fitScale, overflowing, actualMm)
   })
   return (
     <div
@@ -318,8 +318,8 @@ interface PageViewProps {
   onMoveSlot?: (slotId: string, x: number, y: number, cross?: 'prev' | 'next') => void
   /** 手动模式：拖角结束提交尺寸 */
   onResizeSlot?: (slotId: string, width: number, estHeight: number) => void
-  /** 实测适配状态回写（字号比例/溢出；质量报告以实测为准）；打印视图不传 */
-  onFit?: (slotId: string, fitScale: number, overflow: boolean) => void
+  /** 实测适配状态回写（字号比例/溢出/内容实际高度；质量报告与版面适配以实测为准）；打印视图不传 */
+  onFit?: (slotId: string, fitScale: number, overflow: boolean, actualMm: number) => void
   /** 版式偏好（页边距/栏距/字体/字号/行距/黑白优先/页眉页脚）；缺省 = 内置默认 */
   prefs?: LayoutPrefs
   /** 自定义角色库（徽章显示自定义角色名） */
