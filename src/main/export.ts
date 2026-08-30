@@ -3,6 +3,8 @@ import { writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import type { LayoutDoc } from '../shared/layout'
+import { readSettings } from './settings'
+import type { AiSettings } from '../shared/settings'
 
 /**
  * PDF 导出：把当前文档传给隐藏打印窗口，逐页渲染真实 A4 版式后 printToPDF。
@@ -11,8 +13,8 @@ import type { LayoutDoc } from '../shared/layout'
  * 页面物理尺寸由 CSS 保证（sheet 固定 210×297mm + overflow hidden），内容永不突破纸张。
  */
 
-/** 待导出数据（主进程暂存，打印窗口渲染进程经 IPC 取走）：文档 + 主窗口每槽 fitScale 终值（所见即所得） */
-let pendingDoc: { doc: LayoutDoc; fits?: Record<string, number> } | null = null
+/** 待导出数据（主进程暂存）：文档 + 主窗口每槽 fitScale 终值（所见即所得）+ 设置快照（版式/主题，打印窗口同步装载避免竞态） */
+let pendingDoc: { doc: LayoutDoc; fits?: Record<string, number>; settings: AiSettings } | null = null
 /** 打印视图渲染完成的通知回调 */
 let notifyRenderReady: (() => void) | null = null
 
@@ -29,12 +31,13 @@ export function registerExportIpc(): void {
   ipcMain.handle(
     'export:pdf',
     async (_event, doc: LayoutDoc, savePath?: string, fits?: Record<string, number>) => {
+    const appSettings = await readSettings()
     const source =
       BrowserWindow.getAllWindows().find((w) => !w.isDestroyed() && !w.webContents.getURL().includes('print=1')) ??
       BrowserWindow.getAllWindows().find((w) => !w.isDestroyed())
     if (!source) return null
 
-    pendingDoc = doc ? { doc, fits } : null
+    pendingDoc = doc ? { doc, fits, settings: appSettings } : null
     // 渲染完成通知（5s 超时兜底：即使渲染卡住也照常导出，不无限等待）
     const ready = new Promise<void>((resolve) => {
       notifyRenderReady = resolve

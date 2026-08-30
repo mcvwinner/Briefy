@@ -109,7 +109,7 @@ declare global {
       exportPdf(doc: LayoutDoc, savePath?: string, fits?: Record<string, number>): Promise<string | null>
       readDocPath(path: string): Promise<string>
       /** 打印窗口：取待导出文档 / A4 页渲染完成后通知主进程 */
-      getExportDoc(): Promise<{ doc: LayoutDoc; fits?: Record<string, number> } | null>
+      getExportDoc(): Promise<{ doc: LayoutDoc; fits?: Record<string, number>; settings: AiSettings } | null>
       renderReady(): Promise<boolean>
       listUserPresets(): Promise<UserPreset[]>
       saveUserPreset(preset: UserPreset): Promise<'saved' | 'name-conflict' | 'error'>
@@ -1159,34 +1159,50 @@ function App(): React.JSX.Element {
     else if (preset === null) void refreshUserPresets() // 取消或失败都刷新一下
   }
 
-  // 打印模式：从主进程取待导出文档 + 主窗口每槽 fitScale 终值（所见即所得：打印窗口禁用收敛循环），
+  // 打印模式：从主进程取待导出文档 + 主窗口每槽 fitScale 终值 + 设置快照（同步装载，避免版式/主题竞态），
   // 渲染完成后通知主进程执行 printToPDF
   const [printDoc, setPrintDoc] = useState<LayoutDoc | null>(null)
   const [printFits, setPrintFits] = useState<Record<string, number> | null>(null)
+  const [printSettings, setPrintSettings] = useState<AiSettings | null>(null)
   useEffect(() => {
     if (!PRINT_MODE) return
     void window.briefy?.getExportDoc?.().then((data) => {
       if (!data) return
       setPrintDoc(data.doc)
       setPrintFits(data.fits ?? null)
+      setPrintSettings(data.settings)
       // 等一拍让 A4 页面完成测量/绘制后再通知
       setTimeout(() => void window.briefy?.renderReady?.(), 100)
     })
   }, [])
-  // 打印模式：仅渲染所有页面的干净版式，供 printToPDF 截取
+  // 打印模式：仅渲染所有页面的干净版式，供 printToPDF 截取。
+  // 主题/版式/主题色全部用导出快照（与主窗口一致）；无快照前不渲染（防用默认版式截取）
   if (PRINT_MODE) {
+    if (!printDoc || !printSettings) {
+      return <FluentProvider theme={webLightTheme}>
+        <div className="print-view" />
+      </FluentProvider>
+    }
+    const accent = printSettings.layout?.accentColor
+    const accentVars = accent
+      ? ({
+          '--colorBrandForeground1': accent,
+          '--colorBrandForeground2': accent,
+          '--colorBrandStroke1': accent
+        } as React.CSSProperties)
+      : undefined
     return (
-      <FluentProvider theme={webLightTheme}>
+      <FluentProvider theme={printSettings.theme === 'dark' ? webDarkTheme : webLightTheme} style={accentVars}>
         <div className="print-view">
-          {printDoc?.pages.map((page, pi) => (
+          {printDoc.pages.map((page, pi) => (
             <div key={page.id} className="print-page">
               <PageView
                 page={page}
                 selectedSlotId={null}
                 onSelectSlot={() => undefined}
                 printFits={printFits ?? undefined}
-                prefs={settings?.layout}
-                customRoles={settings?.customRoles}
+                prefs={printSettings.layout}
+                customRoles={printSettings.customRoles}
                 docTitle={printDoc.title}
                 pageNo={pi + 1}
                 totalPages={printDoc.pages.length}
