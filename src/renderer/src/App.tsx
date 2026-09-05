@@ -1,5 +1,5 @@
 import type * as React from 'react'
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import {
   Button,
   Dialog,
@@ -59,6 +59,8 @@ import { ROLE_DEFS, resolveRoleName, reflowManualPage, resolveGeometry } from '.
 import { PRESETS, buildDocFromPreset } from '../../shared/presets'
 import { toPresetSlots, fromPresetSlots, type UserPreset } from '../../shared/user-preset'
 import { setEagerImages } from './utils/widgets-render'
+import { isEditingTarget, waitWithTimeout } from './utils/editor-safety'
+import packageJson from '../../../package.json'
 // enforceLength（v0.20 引入的截断重组）在 v0.21 起不再被调用，函数与测试保留在 shared/parse.ts 备用
 import { countContentChars, estimateQuota, quotaRange, slotWordCapacity, type QuotaOptions } from '../../shared/parse'
 import {
@@ -335,6 +337,10 @@ function App(): React.JSX.Element {
   } | null>(null)
 
   const layout = useLayout(settings?.layout)
+  /** 最近一次成功保存/打开/新建后的文档快照；与当前文档不同即为未保存。 */
+  const [cleanDocSignature, setCleanDocSignature] = useState(() => JSON.stringify(layout.doc))
+  const currentDocSignature = useMemo(() => JSON.stringify(layout.doc), [layout.doc])
+  const isDirty = currentDocSignature !== cleanDocSignature
   /** 最新设置引用：生成链路跨渲染读（订阅出刊时临时覆盖 state 后立即生效） */
   const settingsRef = useRef(settings)
   settingsRef.current = settings
@@ -343,6 +349,23 @@ function App(): React.JSX.Element {
   useEffect(() => {
     void window.briefy?.getSettings().then(setSettings).catch(() => setSettings(null))
   }, [])
+
+  useEffect(() => {
+    document.title = `${isDirty ? '● ' : ''}${layout.doc.title || '未命名报纸'} — Briefy`
+  }, [isDirty, layout.doc.title])
+
+  useEffect(() => {
+    if (!isDirty) return
+    const onBeforeUnload = (e: BeforeUnloadEvent): void => {
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [isDirty])
+
+  const confirmDiscardChanges = (): boolean =>
+    !isDirty || window.confirm('当前设计有未保存的更改，确定放弃这些更改吗？')
 
   /** 切换主题并持久化（settings 尚未加载或浏览器环境时仅本地生效） */
   const toggleTheme = async (): Promise<void> => {
@@ -363,7 +386,7 @@ function App(): React.JSX.Element {
   const removeSlotFn = layout.removeSlot
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent): void => {
-      if (e.key !== 'Delete' || !layoutSelection) return
+      if (e.key !== 'Delete' || !layoutSelection || isEditingTarget(e.target as HTMLElement | null)) return
       removeSlotFn(layoutSelection.page.id, layoutSelection.slot.id)
     }
     window.addEventListener('keydown', onKeyDown)
@@ -420,16 +443,8 @@ function App(): React.JSX.Element {
       content: string
       usage?: { promptTokens: number; completionTokens: number; totalTokens: number }
     }> => {
-      let timer: ReturnType<typeof setTimeout> | undefined
-      const watchdog = new Promise<never>((_, reject) => {
-        timer = setTimeout(
-          () => reject(new Error(`生成超时（超过 ${Math.round(SLOT_TIMEOUT_MS / 1000)}s 已中止）`)),
-          SLOT_TIMEOUT_MS
-        )
-      })
-      try {
-        return Promise.race([
-          window.briefy!.generateSlot(
+      return waitWithTimeout(
+        window.briefy!.generateSlot(
             generationId,
             extraPrompt ? `${slot.prompt}\n\n${extraPrompt}` : slot.prompt,
             resolveRoleName(slot),
@@ -439,14 +454,13 @@ function App(): React.JSX.Element {
             index,
             slot.sources ?? [],
             slot.estHeight,
-            overrides
+            overrides,
+            slot.region.width
           ),
-          watchdog
-        ])
-      } finally {
-        clearTimeout(timer)
-        void window.briefy?.cancelGeneration(generationId)
-      }
+        SLOT_TIMEOUT_MS,
+        `生成超时（超过 ${Math.round(SLOT_TIMEOUT_MS / 1000)}s 已中止）`,
+        () => window.briefy!.cancelGeneration(generationId)
+      )
     }
     layout.updateSlot(slot.id, { status: 'generating' })
     try {
@@ -1108,6 +1122,7 @@ function App(): React.JSX.Element {
 
   /** 还原上次生成前快照（编辑部模式自动保存） */
   const restoreSnapshot = (): void => {
+    if (!confirmDiscardChanges()) return
     try {
       const raw = localStorage.getItem('briefy-snapshot')
       if (!raw) {
@@ -1142,13 +1157,27 @@ function App(): React.JSX.Element {
 
   /** 保存设计为 .briefy 文件 */
   const saveDoc = async (): Promise<void> => {
-    await window.briefy?.saveDoc(layout.doc)
+    const docToSave = layout.docRef.current
+    const signatureToSave = JSON.stringify(docToSave)
+    const savedPath = await window.briefy?.saveDoc(docToSave)
+    if (savedPath) setCleanDocSignature(signatureToSave)
   }
 
   /** 打开 .briefy 设计文件 */
   const openDoc = async (): Promise<void> => {
+    if (!confirmDiscardChanges()) return
     const doc = await window.briefy?.openDoc()
-    if (doc) layout.loadDoc(doc, settings?.sources ?? [])
+    if (doc) {
+      const loaded = layout.loadDoc(doc, settings?.sources ?? [])
+      setCleanDocSignature(JSON.stringify(loaded))
+    }
+  }
+
+  /** 新建前保护未保存内容；新文档本身视为干净状态。 */
+  const newDoc = (): void => {
+    if (!confirmDiscardChanges()) return
+    const fresh = layout.newDoc()
+    setCleanDocSignature(JSON.stringify(fresh))
   }
 
   /** 导出当前文档为 PDF（把文档 + 主窗口收敛后的每槽 fitScale 传给打印窗口，所见即所得） */
@@ -1159,6 +1188,7 @@ function App(): React.JSX.Element {
 
   /** 套用排版预设 */
   const applyPreset = (presetId: string): void => {
+    if (!confirmDiscardChanges()) return
     const preset = PRESETS.find((p) => p.id === presetId)
     if (preset) layout.loadDoc(buildDocFromPreset(preset))
   }
@@ -1191,6 +1221,7 @@ function App(): React.JSX.Element {
 
   /** 套用用户预设 */
   const applyUserPreset = (preset: UserPreset): void => {
+    if (!confirmDiscardChanges()) return
     layout.loadDoc({
       version: 2,
       title: preset.name,
@@ -1334,7 +1365,7 @@ function App(): React.JSX.Element {
             </MenuTrigger>
             <MenuPopover>
               <MenuList>
-                <MenuItem icon={<DocumentAddRegular />} onClick={layout.newDoc}>
+                <MenuItem icon={<DocumentAddRegular />} onClick={newDoc}>
                   新建
                 </MenuItem>
                 <MenuItem icon={<FolderOpenRegular />} onClick={() => void openDoc()}>
@@ -1603,7 +1634,7 @@ function App(): React.JSX.Element {
           onMove={layout.movePage}
         />
 
-        <StatusBar version="0.24.0" hasApiKey={hasApiKey} phase={phase} />
+        <StatusBar version={packageJson.version} hasApiKey={hasApiKey} phase={phase} dirty={isDirty} />
 
         {/* AI 工作台浮动面板：实时展示流式输出（心跳改进：可直读内容） */}
         {generating && heartbeat !== null && (

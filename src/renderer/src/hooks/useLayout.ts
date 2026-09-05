@@ -269,16 +269,17 @@ export function useLayout(prefs?: LayoutPrefs) {
   )
 
   /** 新建文档（清空为单页） */
-  const newDoc = useCallback((): void => {
+  const newDoc = useCallback((): LayoutDoc => {
     const fresh = createEmptyDoc()
     setDoc(fresh)
     setCurrentPageId(fresh.pages[0].id)
     setSelectedSlotId(null)
+    return fresh
   }, [])
 
   /** 加载文档（接受 v2 doc 或旧 v1 JSON 字符串，内部统一迁移；
    *  传入常用源库时，旧 sourceIds 会解析为槽位内联源副本） */
-  const loadDoc = useCallback((docOrRaw: LayoutDoc | string, sourceLibrary: InfoSource[] = []): void => {
+  const loadDoc = useCallback((docOrRaw: LayoutDoc | string, sourceLibrary: InfoSource[] = []): LayoutDoc => {
     const next =
       typeof docOrRaw === 'string'
         ? parseLayoutDoc(docOrRaw, sourceLibrary)
@@ -292,6 +293,7 @@ export function useLayout(prefs?: LayoutPrefs) {
     setDoc(next)
     setCurrentPageId(next.pages[0]?.id ?? '')
     setSelectedSlotId(null)
+    return next
   }, [])
 
   /** 当前选中的槽位及其所属页（供属性面板使用） */
