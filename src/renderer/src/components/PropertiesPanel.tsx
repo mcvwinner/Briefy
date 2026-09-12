@@ -168,7 +168,8 @@ function PropertiesPanel({
     return (
       <aside className={styles.panel}>
         <h2 className={styles.title}>属性</h2>
-        <p className={styles.hint}>选中槽位后在此编辑提示词与工具</p>
+        <p className={styles.hint}>选中画布中的槽位后，在这里编辑角色、提示词、栏宽和信息源。</p>
+        <p className={styles.hint}>还没有槽位？可先从顶部“预设”开始。</p>
       </aside>
     )
   }

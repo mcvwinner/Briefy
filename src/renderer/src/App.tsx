@@ -194,6 +194,33 @@ const useStyles = makeStyles({
   toolbar: {
     borderBottom: `1px solid ${tokens.colorNeutralStroke2}`,
     padding: '4px 8px'
+  },
+  emptyState: {
+    width: 'min(560px, 100%)',
+    margin: '8px 0 0',
+    padding: '24px',
+    backgroundColor: tokens.colorNeutralBackground1,
+    border: `1px solid ${tokens.colorNeutralStroke2}`,
+    borderRadius: tokens.borderRadiusMedium,
+    boxShadow: tokens.shadow4,
+    textAlign: 'center'
+  },
+  emptyTitle: {
+    margin: '0 0 6px',
+    fontSize: tokens.fontSizeBase500,
+    fontWeight: tokens.fontWeightSemibold,
+    color: tokens.colorNeutralForeground1
+  },
+  emptyHint: {
+    margin: '0 0 16px',
+    color: tokens.colorNeutralForeground2,
+    fontSize: tokens.fontSizeBase300
+  },
+  emptyActions: {
+    display: 'flex',
+    justifyContent: 'center',
+    flexWrap: 'wrap',
+    gap: '8px'
   }
 })
 
@@ -415,6 +442,7 @@ function App(): React.JSX.Element {
   }, [layoutSelection, removeSlotFn])
 
   const hasApiKey = Boolean(settings?.apiKey)
+  const hasSlots = layout.doc.pages.some((page) => page.slots.length > 0)
 
   /** 并发生成所有槽位（并发上限 3），逐槽回填；附带文档大纲供 AI 语篇决策 */
   const [generating, setGenerating] = useState(false)
@@ -1600,6 +1628,33 @@ function App(): React.JSX.Element {
 
         <div className={styles.workspace}>
           <div className={styles.canvasScroll}>
+            {!hasSlots && (
+              <section className={styles.emptyState} aria-label="开始制作">
+                <h1 className={styles.emptyTitle}>开始制作你的第一份读物</h1>
+                <p className={styles.emptyHint}>先选一个版面，AI 会按你的设计填充内容。</p>
+                <div className={styles.emptyActions}>
+                  <Button
+                    appearance="primary"
+                    icon={<AppsRegular />}
+                    onClick={() => applyPreset('tech-daily')}
+                  >
+                    使用每日科技报
+                  </Button>
+                  <Button
+                    icon={<SettingsRegular />}
+                    onClick={() => setSettingsOpen(true)}
+                  >
+                    配置 AI 服务
+                  </Button>
+                  <Button
+                    icon={<AddSquareRegular />}
+                    onClick={() => layout.addSlot(layout.currentPageId, 'headline', 'full')}
+                  >
+                    添加第一个槽位
+                  </Button>
+                </div>
+              </section>
+            )}
             {layout.doc.pages.map((page) => (
               <div key={page.id} className={page.id === layout.currentPageId ? undefined : styles.offscreenPage}>
                 <PageView
