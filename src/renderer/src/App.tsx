@@ -1194,7 +1194,8 @@ function App(): React.JSX.Element {
         window.alert('没有可用的快照')
         return
       }
-      layout.loadDoc(JSON.parse(raw) as LayoutDoc)
+      const restored = layout.loadDoc(JSON.parse(raw) as LayoutDoc)
+      setCleanDocSignature(JSON.stringify(restored))
       window.alert('已还原到上次生成前的版本')
     } catch (err) {
       window.alert('还原失败：' + String(err))
@@ -1207,7 +1208,10 @@ function App(): React.JSX.Element {
     if (!autoDoc) return
     void window.briefy
       ?.readDocPath(autoDoc)
-      .then((raw) => layout.loadDoc(raw))
+      .then((raw) => {
+        const loaded = layout.loadDoc(raw)
+        setCleanDocSignature(JSON.stringify(loaded))
+      })
       .catch((err) => console.error('autodoc 加载失败', err))
     // 仅挂载时执行一次
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1257,7 +1261,10 @@ function App(): React.JSX.Element {
   const applyPreset = (presetId: string): void => {
     if (!confirmDiscardChanges()) return
     const preset = PRESETS.find((p) => p.id === presetId)
-    if (preset) layout.loadDoc(buildDocFromPreset(preset))
+    if (preset) {
+      const loaded = layout.loadDoc(buildDocFromPreset(preset))
+      setCleanDocSignature(JSON.stringify(loaded))
+    }
   }
 
   // ---- 用户自定义预设 ----
@@ -1289,7 +1296,7 @@ function App(): React.JSX.Element {
   /** 套用用户预设 */
   const applyUserPreset = (preset: UserPreset): void => {
     if (!confirmDiscardChanges()) return
-    layout.loadDoc({
+    const loaded = layout.loadDoc({
       version: 2,
       title: preset.name,
       layoutMode: 'manual',
@@ -1298,6 +1305,7 @@ function App(): React.JSX.Element {
         slots: fromPresetSlots(p.slots, settings?.sources ?? [])
       }))
     })
+    setCleanDocSignature(JSON.stringify(loaded))
   }
 
   const deleteUserPreset = async (name: string): Promise<void> => {
@@ -1597,14 +1605,19 @@ function App(): React.JSX.Element {
               {layout.doc.layoutMode === 'manual' ? '固定版式' : '流式版式'}
             </ToolbarButton>
           </Tooltip>
-          <Tooltip content={generating ? `${phase ?? '生成中'}·点击终止全部任务` : '让 AI 填充全部槽位：按各槽位的角色与提示词并行写作；可在设置中配置模型与信息源'} relationship="description">
+          <Tooltip content={generating ? `${phase ?? '生成中'}·点击终止全部任务` : hasApiKey ? '让 AI 填充全部槽位：按各槽位的角色与提示词并行写作' : '开始生成前请先配置 AI 服务'} relationship="description">
             <ToolbarButton
               icon={<WandRegular />}
-              disabled={!hasApiKey}
-              appearance={generating ? undefined : hasApiKey ? 'primary' : undefined}
-              onClick={() => void generateAll()}
+              appearance={generating || hasApiKey ? 'primary' : undefined}
+              onClick={() => {
+                if (!hasApiKey) {
+                  setSettingsOpen(true)
+                  return
+                }
+                void generateAll()
+              }}
             >
-              {generating ? '终止' : '生成'}
+              {generating ? '终止' : hasApiKey ? '生成' : '配置 AI'}
             </ToolbarButton>
           </Tooltip>
           <Tooltip content={isDark ? '切换到亮色模式' : '切换到暗色模式（主题偏好会保存）'} relationship="description">
