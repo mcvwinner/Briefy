@@ -1,0 +1,24 @@
+{
+  "version": 2,
+  "title": "读书笔记·固定版式回归",
+  "layoutMode": "manual",
+  "pages": [
+    {
+      "id": "reading-page-1",
+      "slots": [
+        { "id": "reading-title", "role": "headline", "region": { "x": 15, "y": 15, "width": 180 }, "estHeight": 38, "kind": "text", "prompt": "为这本书写一句核心判断和简短副题", "tools": ["getCurrentTime"], "sources": [], "status": "empty" },
+        { "id": "reading-summary", "role": "body", "region": { "x": 15, "y": 61, "width": 112 }, "estHeight": 126, "kind": "text", "prompt": "基于所附书籍文件，概括核心论证和章节脉络，不得补写文件中没有的事实", "tools": ["getCurrentTime"], "sources": [], "status": "empty" },
+        { "id": "reading-concepts", "role": "stats", "region": { "x": 135, "y": 61, "width": 60 }, "estHeight": 126, "kind": "text", "prompt": "提炼四个关键概念及其简明定义", "tools": ["getCurrentTime"], "sources": [], "status": "empty" },
+        { "id": "reading-quotes", "role": "notice", "region": { "x": 15, "y": 195, "width": 180 }, "estHeight": 67, "kind": "text", "prompt": "选择两段重要原文并解释选择理由，明确标注为原文摘录", "tools": ["getCurrentTime"], "sources": [], "status": "empty" }
+      ]
+    },
+    {
+      "id": "reading-page-2",
+      "slots": [
+        { "id": "reading-reflection", "role": "body", "region": { "x": 15, "y": 15, "width": 86 }, "estHeight": 170, "kind": "text", "prompt": "提出三个值得质疑或继续思考的问题，并联系全书论证", "tools": ["getCurrentTime"], "sources": [], "status": "empty" },
+        { "id": "reading-actions", "role": "body", "region": { "x": 109, "y": 15, "width": 86 }, "estHeight": 170, "kind": "text", "prompt": "把书中观点转化为具体行动清单，每项说明依据", "tools": ["getCurrentTime"], "sources": [], "status": "empty" },
+        { "id": "reading-close", "role": "notice", "region": { "x": 15, "y": 193, "width": 180 }, "estHeight": 69, "kind": "text", "prompt": "写一段适合日后复习的总结", "tools": ["getCurrentTime"], "sources": [], "status": "empty" }
+      ]
+    }
+  ]
+}

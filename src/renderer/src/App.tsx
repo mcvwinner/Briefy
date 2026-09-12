@@ -55,14 +55,15 @@ import type { AiSettings, InfoSource, ThemeMode } from '../../shared/settings'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
 import type { LayoutPrefs } from '../../shared/settings'
 import type { LayoutDoc, Slot, SlotRole } from '../../shared/layout'
-import { ROLE_DEFS, resolveRoleName, reflowManualPage, resolveGeometry } from '../../shared/layout'
+import { ROLE_DEFS, resolveRoleName } from '../../shared/layout'
+import { contentKey, enforceFixedGeometry, geometryEquals, resolveLayoutPolicy, slotHeight, snapshotGeometry } from '../../shared/layout-policy'
 import { PRESETS, buildDocFromPreset } from '../../shared/presets'
 import { toPresetSlots, fromPresetSlots, type UserPreset } from '../../shared/user-preset'
 import { setEagerImages } from './utils/widgets-render'
 import { isEditingTarget, waitWithTimeout } from './utils/editor-safety'
 import packageJson from '../../../package.json'
 // enforceLength（v0.20 引入的截断重组）在 v0.21 起不再被调用，函数与测试保留在 shared/parse.ts 备用
-import { countContentChars, estimateQuota, quotaRange, slotWordCapacity, type QuotaOptions } from '../../shared/parse'
+import { countContentChars, estimateQuota, hasRichMedia, quotaRange, slotWordCapacity, type QuotaOptions } from '../../shared/parse'
 import {
   buildIssueSummary,
   buildMemoryBlock,
@@ -72,6 +73,9 @@ import {
   RECENT_MEMORY_LIMIT,
   type Subscription
 } from '../../shared/subscription'
+
+// 所有页面都会离屏挂载以完成生成后的真实测量；离屏页的 lazy 图片不会自行加载，必须统一 eager。
+setEagerImages(true)
 declare global {
   interface Window {
     briefy?: {
@@ -180,6 +184,13 @@ const useStyles = makeStyles({
       backgroundColor: 'transparent'
     }
   },
+  offscreenPage: {
+    position: 'absolute',
+    left: '-10000px',
+    top: 0,
+    visibility: 'hidden',
+    pointerEvents: 'none'
+  },
   toolbar: {
     borderBottom: `1px solid ${tokens.colorNeutralStroke2}`,
     padding: '4px 8px'
@@ -198,6 +209,16 @@ function quotaOptsFor(slot: Slot, layout?: LayoutPrefs): QuotaOptions {
     columns: slot.role === 'body' && slot.kind === 'text' ? layout?.columns : undefined
   }
 }
+
+interface SlotFit {
+  fit: number
+  overflow: boolean
+  actualMm: number
+  /** 只有与当前内容指纹相同的测量才有效，防止上一稿结果串入本轮质检。 */
+  contentKey: string
+}
+
+type GenerationTask = { pageId: string; slot: Slot; index: number }
 
 /** AI 工作台浮动面板（心跳改进）：右下角实时展示流式输出，可直读内容、可终止 */
 const HB_POS_KEY = 'briefy-hb-pos'
@@ -431,9 +452,17 @@ function App(): React.JSX.Element {
     index: number,
     docContext: { title: string; outline: { position: string; prompt: string }[] },
     extraPrompt = '',
-    overrides?: Partial<AiSettings>
+    overrides?: Partial<AiSettings>,
+    isRewrite = false
   ): Promise<void> => {
     if (cancelRef.current) return // 已请求终止：跳过队列任务
+    // 重写任务可能拿到生成前的旧快照；始终以 docRef 中的当前槽位作为原稿和几何来源。
+    const activeSlot = isRewrite
+      ? layout.docRef.current.pages.flatMap((page) => page.slots).find((item) => item.id === slot.id) ?? slot
+      : slot
+    // 后续参数统一使用当前槽位；保留 slot 变量也让生成调用的宽度/高度契约清晰可检索。
+    slot = activeSlot
+    clearSlotFit(activeSlot.id)
     const generationId = crypto.randomUUID()
     inFlightRef.current.add(generationId)
     /** 单槽看门狗：超时中止该任务并报错，worker 继续下一任务（防个别任务卡死拖住全局队列）。
@@ -446,13 +475,22 @@ function App(): React.JSX.Element {
       return waitWithTimeout(
         window.briefy!.generateSlot(
             generationId,
-            extraPrompt ? `${slot.prompt}\n\n${extraPrompt}` : slot.prompt,
-            resolveRoleName(slot),
-            slot.kind,
-            slot.tools ?? ['getCurrentTime'],
+            isRewrite
+              ? [
+                  '你正在编辑一份已经生成的原稿。请在保留原稿事实、来源和必要控件的前提下，严格执行下面的版面修改要求。',
+                  '不要重新搜索、不要引入原稿之外的新事实；只输出修改后的完整稿件。',
+                  `【版面修改要求】${extraPrompt}`,
+                  `【待编辑原稿】\n${activeSlot.content ?? ''}`
+                ].join('\n\n')
+              : extraPrompt
+                ? `${activeSlot.prompt}\n\n${extraPrompt}`
+                : activeSlot.prompt,
+            resolveRoleName(activeSlot),
+            activeSlot.kind,
+            isRewrite ? [] : activeSlot.tools ?? ['getCurrentTime'],
             docContext,
             index,
-            slot.sources ?? [],
+            isRewrite ? [] : activeSlot.sources ?? [],
             slot.estHeight,
             overrides,
             slot.region.width
@@ -462,7 +500,7 @@ function App(): React.JSX.Element {
         () => window.briefy!.cancelGeneration(generationId)
       )
     }
-    layout.updateSlot(slot.id, { status: 'generating' })
+    layout.updateSlot(activeSlot.id, { status: 'generating' })
     try {
       let content: string | undefined
       for (let attempt = 0; attempt < 2 && content === undefined; attempt++) {
@@ -483,66 +521,19 @@ function App(): React.JSX.Element {
           const message = err instanceof Error ? err.message : String(err)
           // 用户主动终止：复位槽位，不重试不报错
           if (message.includes('abort')) {
-            layout.updateSlot(slot.id, { status: 'empty', content: undefined })
+            layout.updateSlot(activeSlot.id, { status: 'empty', content: undefined })
             return
           }
           if (attempt === 0) continue // 第一次失败：自动重试 1 次
-          layout.updateSlot(slot.id, { content: message, status: 'error' })
+          layout.updateSlot(activeSlot.id, { content: message, status: 'error' })
           return
         }
       }
-      // ---- 长度协调（v0.22：槽位定字数；偏差小微调，偏差大退稿）----
-      // 合格区间 quotaRange（v0.34.4）：小槽位 85%~115%，大槽位（>600 字）固定字数冗余（-100/+150）。
-      // 容量与估计 v0.34.5 密度感知：字/mm 随槽位宽度/字号/行距/分栏变化，替代旧恒定 4.5 字/mm——
-      // 全宽槽实际密度约为半栏的 2 倍，旧口径对全宽大槽位严重低估容量，是"超大槽位字数不够"的源头。
-      const qOpts = quotaOptsFor(slot, settingsRef.current?.layout)
-      const wordLimit = slotWordCapacity(slot.estHeight, qOpts)
-      const quota = content ? estimateQuota(content, qOpts) : 0
-      const range = quotaRange(wordLimit)
-      // 纯控件槽位（正文为 0）与自由创作槽（不限字数格式）是合法形态，不退稿
-      const pureWidget =
-        (content?.includes(':::') ?? false) && countContentChars(content ?? '') === 0
-      let retried = false
-      if (content && slot.role !== 'free' && !pureWidget && (quota > range.max || quota < range.min)) {
-        retried = true // 只要发起过退稿重写就记录（质量报告展示「重试了」）
-        const tooLong = quota > wordLimit
-        try {
-          layout.updateSlot(slot.id, { status: 'generating' })
-          const retryId = crypto.randomUUID()
-          inFlightRef.current.add(retryId)
-          try {
-            const retry = await Promise.race([
-              window.briefy!.generateSlot(
-                retryId,
-                tooLong
-                  ? `${slot.prompt}\n\n【退稿重写】你上一稿体积约 ${quota} 字（含图表/配图折算），超出目标 ${wordLimit} 字太多被主编退稿。这次压缩到 ${wordLimit} 字左右：保留最重要的信息，删除次要细节与重复修饰。`
-                  : `${slot.prompt}\n\n【退稿重写】你上一稿体积约 ${quota} 字（含图表/配图折算），距目标 ${wordLimit} 字差距太大（下限 ${range.min} 字）被主编退稿。这次写到 ${wordLimit} 字左右：补充具体细节、数据与背景，展开论述，不要空洞凑字。`,
-                resolveRoleName(slot),
-                slot.kind,
-                slot.tools ?? ['getCurrentTime'],
-                docContext,
-                index,
-                slot.sources ?? [],
-                slot.estHeight,
-                overrides,
-                slot.region.width
-              ),
-              new Promise<never>((_, rej) => setTimeout(() => rej(new Error('重写超时（120s）')), 120_000))
-            ])
-            content = retry.content
-          } finally {
-            void window.briefy?.cancelGeneration(retryId)
-            inFlightRef.current.delete(retryId)
-          }
-        } catch {
-          // 重写失败：保留原稿
-        }
-        // 重写后仍偏差大：不砍内容不强缩——超限交给渲染层放宽槽位兜底，太短交给渲染层增大字号填充
-      }
-      layout.updateSlot(slot.id, {
+      const latest = layout.docRef.current.pages.flatMap((p) => p.slots).find((s) => s.id === activeSlot.id)
+      layout.updateSlot(activeSlot.id, {
         content: content ?? '（生成失败：空响应）',
         status: 'done',
-        ...(retried ? { rewriteCount: (slot.rewriteCount ?? 0) + 1 } : {})
+        ...(isRewrite ? { rewriteCount: (latest?.rewriteCount ?? activeSlot.rewriteCount ?? 0) + 1 } : {})
       })
     } finally {
       inFlightRef.current.delete(generationId)
@@ -551,24 +542,112 @@ function App(): React.JSX.Element {
 
   /** 生成单个槽位（属性面板"生成此槽位"） */
   /** 实测适配状态（SlotBox 收敛后回写）：字号比例/是否溢出/内容实际高度——质量报告与版面适配以实测为准 */
-  const [slotFits, setSlotFits] = useState<Record<string, { fit: number; overflow: boolean; actualMm: number }>>({})
+  const [slotFits, setSlotFits] = useState<Record<string, SlotFit>>({})
   /** 订阅管理弹窗 */
   const [subsOpen, setSubsOpen] = useState(false)
-  const handleFit = useCallback((slotId: string, fit: number, overflow: boolean, actualMm: number): void => {
+  const handleFit = useCallback((slotId: string, fit: number, overflow: boolean, actualMm: number, content?: string): void => {
+    const measuredContentKey = contentKey(content)
     setSlotFits((prev) => {
       const cur = prev[slotId]
-      if (cur && cur.fit === fit && cur.overflow === overflow && cur.actualMm === actualMm) return prev // 无变化不触发重渲染，防测量循环
-      return { ...prev, [slotId]: { fit, overflow, actualMm } }
+      if (cur && cur.fit === fit && cur.overflow === overflow && cur.actualMm === actualMm && cur.contentKey === measuredContentKey) return prev
+      return { ...prev, [slotId]: { fit, overflow, actualMm, contentKey: measuredContentKey } }
     })
   }, [])
   /** 最新实测引用：订阅版面适配循环跨渲染读取（闭包快照是过期数据，v0.31 教训） */
   const slotFitsRef = useRef(slotFits)
   slotFitsRef.current = slotFits
 
+  const clearSlotFit = (slotId: string): void => {
+    const next = { ...slotFitsRef.current }
+    delete next[slotId]
+    slotFitsRef.current = next
+    setSlotFits(next)
+  }
+
+  const fitFor = (slot: Slot): SlotFit | undefined => {
+    const fit = slotFitsRef.current[slot.id]
+    return fit?.contentKey === contentKey(slot.content) ? fit : undefined
+  }
+
+  /** 等待所有已生成槽位完成渲染测量，并要求连续三次读数不变，避免读到收敛中间态。 */
+  const waitForStableFits = async (slotIds: string[], timeoutMs = 5000): Promise<void> => {
+    const deadline = Date.now() + timeoutMs
+    let previous = ''
+    let stableCount = 0
+    while (Date.now() < deadline) {
+      const byId = new Map(layout.docRef.current.pages.flatMap((p) => p.slots).map((s) => [s.id, s]))
+      const state = slotIds.map((id) => {
+        const slot = byId.get(id)
+        if (slot && slot.status !== 'done') return `${id}:skip:${slot.status}`
+        const fit = slot ? fitFor(slot) : undefined
+        return fit ? `${id}:${fit.fit}:${fit.overflow}:${fit.actualMm}` : ''
+      })
+      const ready = state.length > 0 && state.every(Boolean)
+      const signature = state.join('|')
+      stableCount = ready && signature === previous ? stableCount + 1 : 0
+      if (stableCount >= 2) return
+      previous = signature
+      await new Promise<void>((resolve) => setTimeout(resolve, 100))
+    }
+  }
+
+  /** 根据真实渲染结果统一收敛内容；固定/流式、整刊/单槽/订阅均复用。 */
+  const adaptGeneratedSlots = async (
+    generated: GenerationTask[],
+    docContext: { title: string; outline: { position: string; prompt: string }[] },
+    overrides?: Partial<AiSettings>,
+    geometryBefore?: LayoutDoc
+  ): Promise<void> => {
+    if (generated.length === 0 || cancelRef.current) return
+    setPhase('版面适配…')
+    const policy = resolveLayoutPolicy(geometryBefore ?? layout.docRef.current)
+    const ids = generated.map((task) => task.slot.id)
+    for (let round = 0; round < 2 && !cancelRef.current; round++) {
+      await waitForStableFits(ids)
+      const current = new Map(layout.docRef.current.pages.flatMap((p) => p.slots).map((s) => [s.id, s]))
+      const problems = generated.flatMap((task) => {
+        const slot = current.get(task.slot.id)
+        if (!slot || slot.status !== 'done' || !slot.content?.trim() || slot.role === 'free') return []
+        const pureWidget = slot.content.includes(':::') && countContentChars(slot.content) === 0
+        if (pureWidget) return []
+        const fit = fitFor(slot)
+        const capacity = slotHeight(slot)
+        if (fit?.overflow) {
+          const ratio = Math.max(0.35, Math.min(0.95, capacity / Math.max(fit.actualMm, 1)))
+          const constraint = policy === 'fixed'
+            ? '固定版式不可扩高或裁切。'
+            : '流式版式允许换页，但仍需避免异常冗长。'
+          return [{ task, slot, instruction: `【版面实测退稿·第 ${round + 1} 轮】当前稿件渲染高度约 ${fit.actualMm.toFixed(1)}mm，但栏目只有 ${capacity.toFixed(1)}mm。请压缩到当前篇幅的 ${Math.round(ratio * 100)}% 左右，保留核心事实、来源与必要控件，删除次要背景和重复表述。${constraint}` }]
+        }
+        if (fit && !hasRichMedia(slot.content) && fit.fit >= 1.09 && fit.actualMm < capacity * 0.68) {
+          const ratio = Math.min(1.8, Math.max(1.15, capacity / Math.max(fit.actualMm, 1)))
+          return [{ task, slot, instruction: `【版面实测退稿·第 ${round + 1} 轮】当前稿件只占约 ${fit.actualMm.toFixed(1)}mm，栏目高度为 ${capacity.toFixed(1)}mm，留白过多。请扩写到当前篇幅的 ${Math.round(ratio * 100)}% 左右，补充具体事实、数据、例证或分析，不要空洞凑字。` }]
+        }
+        return []
+      })
+      if (problems.length === 0) break
+      for (const problem of problems) {
+        if (cancelRef.current) break
+        await runSlotTask(problem.slot, problem.task.index, docContext, problem.instruction, overrides, true)
+      }
+    }
+    await waitForStableFits(ids)
+
+    // 固定版式是硬约束。正常路径不会改变几何；保险丝负责阻断任何旧异步逻辑造成的漂移。
+    if (geometryBefore && resolveLayoutPolicy(geometryBefore) === 'fixed') {
+      const latest = layout.docRef.current
+      if (!geometryEquals(snapshotGeometry(geometryBefore), snapshotGeometry(latest))) {
+        const restored = enforceFixedGeometry(geometryBefore, latest)
+        layout.loadDoc(restored)
+        layout.docRef.current = restored
+      }
+    }
+  }
+
   /** 收集并显示质量报告卡：生成完成时自动弹出；卡内「刷新」手动重取最新状态（含仍在生成的槽位） */
   const collectReport = (reviewFixedCount: number, overrides?: Partial<AiSettings>): void => {
     try {
-      const doc = (window as unknown as { __briefyGetDoc?: () => LayoutDoc }).__briefyGetDoc?.() ?? layout.doc
+      const doc = layout.docRef.current
       const slots = doc.pages.flatMap((p) => p.slots)
       const usage = (window as unknown as { __briefyUsage?: { promptTokens: number; completionTokens: number; totalTokens: number } }).__briefyUsage
       setQualityReport({
@@ -578,7 +657,7 @@ function App(): React.JSX.Element {
           const len = estimateQuota(s.content ?? '', rOpts)
           const limit = slotWordCapacity(s.estHeight, rOpts)
           // 实测适配优先（SlotBox 收敛结果）：溢出才算失败；无实测（未渲染/刷新前）时用估算兑底（quotaRange 口径）
-          const fit = slotFits[s.id]
+          const fit = fitFor(s)
           const range = quotaRange(limit)
           const ok =
             s.status !== 'done'
@@ -633,7 +712,7 @@ function App(): React.JSX.Element {
           problems.push({ slotId: s.id, role, msg: '内容为空' })
           continue
         }
-        const fit = slotFits[s.id]
+        const fit = fitFor(s)
         if (fit?.overflow) problems.push({ slotId: s.id, role, msg: '版面溢出（字号下限仍装不下）' })
         // 与上期同槽查重（出刊不可改，重复是硬伤）
         const prev = lastIssueSlots.find((p) => p.role === role)
@@ -700,7 +779,7 @@ function App(): React.JSX.Element {
       settingsRef.current = issueSettings
       layout.loadDoc(docClone)
       layout.docRef.current = docClone // 装载后立即同步引用（不等渲染，供本次闭包内读取）
-      await generateAll(overrides)
+      await generateAll(overrides, false)
       // 强化审查：不合格槽位自动重生成，最多 2 轮；仍不合格标记瑕疵出刊
       const lastSlots = lastIssue?.slots ?? []
       for (let round = 0; round < 2; round++) {
@@ -710,76 +789,11 @@ function App(): React.JSX.Element {
         const all = doc.pages.flatMap((p) => p.slots)
         const bad = all.filter((s) => problems.some((p) => p.slotId === s.id))
         for (const s of bad) {
-          await generateOne(s, all.findIndex((x) => x.id === s.id), overrides)
+          await generateOne(s, all.findIndex((x) => x.id === s.id), overrides, false)
           repaired++
         }
       }
-      // ---- 版面适配循环（v0.31 实验性，仅手动布局订阅 + 开关开启）：
-      // 开关 v0.34.1 迁至全局设置（AiSettings.experimentalLayoutFit）：设置保存时始终写显式布尔，
-      // 能覆盖旧订阅上的遗留字段；旧订阅字段仅在该设置从未保存过（undefined）时兜底生效。
-      // 页数/槽位集合/列结构/列内相对顺序锁定；允许调 estHeight（高度）与纵向位置（列内流式重排）。
-      // 每轮从 slotFitsRef 读最新实测（v0.31 修复：闭包快照是过期数据，是上一版越适越乱的原因）；
-      // 单轮 est 变化钉在 ±40% 以内防震荡；溢出槽只做几何吸收+裁剪（不打回——新内容引入新波动是震荡源）。
-      const layoutFitEnabled = issueSettings.experimentalLayoutFit ?? sub.experimentalLayoutFit === true
-      if (layoutFitEnabled && sub.template.doc.layoutMode === 'manual') {
-        setPhase('版面适配…')
-        const geo = resolveGeometry(sub.template.layout)
-        const bottomLimit = geo.pageHeightMM - geo.marginMM
-        for (let round = 0; round < 3; round++) {
-          const fits = slotFitsRef.current // 实时读
-          const doc = layout.docRef.current
-          const all = doc.pages.flatMap((p, pi) => p.slots.map((s) => ({ s, pageIdx: pi })))
-          const overflowSlots = all.filter(
-            ({ s }) => s.role !== 'free' && s.status === 'done' && fits[s.id]?.overflow
-          )
-          const sparseSlots = all.filter(({ s }) => {
-            if (s.role === 'free' || s.status !== 'done') return false
-            const f = fits[s.id]
-            if (!f || f.overflow) return false
-            const capacity = s.estHeight + (s.overflow ?? 0)
-            return f.fit >= 1.24 && f.actualMm < capacity * 0.6 && capacity > 40
-          })
-          console.log(`[fit] 版面适配第 ${round + 1} 轮：溢出 ${overflowSlots.length} / 留白 ${sparseSlots.length}`)
-          if (overflowSlots.length === 0 && sparseSlots.length === 0) break
-
-          const adjustedPages = new Set<number>()
-          const pageIdxOf = (id: string): number => all.find((x) => x.s.id === id)?.pageIdx ?? 0
-          // 动作 A：溢出槽吸收页内剩余空间（钳制在页底）；吸收不完 → 内容裁剪 + 标记瑕疵（不打回）
-          for (const { s } of overflowSlots) {
-            const actual = fits[s.id]?.actualMm ?? s.estHeight
-            const need = Math.ceil(actual - s.estHeight) + 2
-            const maxGrow = Math.max(0, bottomLimit - s.region.y - s.estHeight)
-            if (maxGrow > 4) {
-              const grow = Math.min(need, maxGrow, Math.ceil(s.estHeight * 0.4))
-              layout.updateSlot(s.id, { estHeight: s.estHeight + grow, overflow: 0 })
-              adjustedPages.add(pageIdxOf(s.id))
-              console.log(`[fit] 溢出槽「${resolveRoleName(s)}」增高 ${grow}mm（页内上限 ${maxGrow}mm）`)
-            } else {
-              console.log(`[fit] 溢出槽「${resolveRoleName(s)}」页内已无空间，内容裁剪 + 标记瑕疵`)
-            }
-          }
-          // 动作 B：留白槽收缩 est 贴合内容（+8mm 余量，不低于 30mm，单轮 ≤40%）
-          for (const { s } of sparseSlots) {
-            const actual = fits[s.id]?.actualMm ?? s.estHeight
-            const newH = Math.max(30, Math.round(actual * 1.15) + 8)
-            if (newH < s.estHeight - 5) {
-              const shrunk = Math.max(newH, Math.ceil(s.estHeight * 0.6))
-              layout.updateSlot(s.id, { estHeight: shrunk, overflow: 0 })
-              adjustedPages.add(pageIdxOf(s.id))
-              console.log(`[fit] 留白槽「${resolveRoleName(s)}」收缩 ${s.estHeight} → ${shrunk}mm`)
-            }
-          }
-          // 动作 C：调整过的页做列内流式重排（列起点锚定/列内顺序保持——相对位置不变）
-          const curDoc = layout.docRef.current
-          const pages = curDoc.pages.map((p, i) =>
-            adjustedPages.has(i) ? { ...p, slots: reflowManualPage(p.slots, geo) } : p
-          )
-          layout.loadDoc({ ...curDoc, pages })
-          layout.docRef.current = { ...curDoc, pages }
-          // 等渲染实测收敛后进下一轮
-          await new Promise<void>((r) => setTimeout(r, 2500))
-        }
-      }
+      problems = runIssueQualityCheck(lastSlots)
       // PDF 归档 + 记忆写回（摘要优先 AI 提炼：保留关键事实供下期防重复/连载；失败降级为零成本截断）
       const pdfPath = await window.briefy.issuePath(sub.id, stamp)
       // 所见即所得：把主窗口收敛后的每槽 fitScale 一并传给打印窗口（禁止重新排版）
@@ -912,11 +926,17 @@ function App(): React.JSX.Element {
     }
   }
 
-  const generateOne = async (slot: Slot, index: number, overrides?: Partial<AiSettings>): Promise<void> => {
+  const generateOne = async (
+    slot: Slot,
+    index: number,
+    overrides?: Partial<AiSettings>,
+    showReport = true
+  ): Promise<void> => {
     if (!window.briefy || generating) return
     setGenerating(true)
     try {
       const doc = layout.docRef.current
+      const geometryBefore = structuredClone(doc)
       const docContext = {
         title: doc.title,
         outline: doc.pages.flatMap((page, pi) =>
@@ -924,6 +944,8 @@ function App(): React.JSX.Element {
         )
       }
       await runSlotTask(slot, index, docContext, '', overrides)
+      await adaptGeneratedSlots([{ pageId: '', slot, index }], docContext, overrides, geometryBefore)
+      if (showReport) collectReport(0, overrides)
     } finally {
       setHeartbeat(null)
       setGenerating(false)
@@ -932,7 +954,7 @@ function App(): React.JSX.Element {
 
   /** 并发生成所有槽位（并发上限 3），逐槽回填；附带文档大纲供 AI 语篇决策。
    *  overrides：订阅出刊时传模板固化配置（仅本次生成生效，不写 settings.json） */
-  const generateAll = async (overrides?: Partial<AiSettings>): Promise<void> => {
+  const generateAll = async (overrides?: Partial<AiSettings>, showReport = true): Promise<void> => {
     if (!window.briefy) return
     // 生成中再次点击 = 终止：标记取消（worker 不再取新任务）+ abort 在途任务
     if (generating) {
@@ -948,6 +970,7 @@ function App(): React.JSX.Element {
     setGenerating(true)
     try {
       const docNow = layout.docRef.current
+      const geometryBefore = structuredClone(docNow)
       // 任务规划（v0.29 关联槽位）：接续组 → 一次调用拆分；子槽位 → 父完成后第二波；其余单槽并行
       const continuationGroups = new Map<string, { pageId: string; slot: Slot; index: number }[]>()
       const childTasks: { pageId: string; slot: Slot; index: number }[] = []
@@ -1008,8 +1031,8 @@ function App(): React.JSX.Element {
         } catch { /* 超限则忽略 */ }
 
         setPhase('选题中…')
+        const planId = crypto.randomUUID()
         try {
-          const planId = crypto.randomUUID()
           inFlightRef.current.add(planId)
           const outline = tasks.map((t) => ({ index: t.index, role: resolveRoleName(t.slot), prompt: t.slot.prompt }))
           const flatSources = [...new Map(tasks.flatMap((t) => t.slot.sources ?? []).map((s) => [s.url, s])).values()]
@@ -1023,7 +1046,7 @@ function App(): React.JSX.Element {
         } catch (err) {
           console.warn('选题失败，降级为逐槽独立生成：', err)
         } finally {
-          inFlightRef.current.delete([...inFlightRef.current][0] ?? '')
+          inFlightRef.current.delete(planId)
         }
       }
 
@@ -1079,13 +1102,16 @@ function App(): React.JSX.Element {
       let reviewFixed = 0
       if (editorial && tasks.length > 0) {
         setPhase('审稿中…')
+        const reviewId = crypto.randomUUID()
         try {
-          const reviewId = crypto.randomUUID()
           inFlightRef.current.add(reviewId)
+          const latestSlots = new Map(
+            layout.docRef.current.pages.flatMap((p) => p.slots).map((slot) => [slot.id, slot])
+          )
           const articles = tasks.map((t) => ({
             index: t.index,
             role: resolveRoleName(t.slot),
-            content: docNow.pages.flatMap((p) => p.slots).find((s) => s.id === t.slot.id)?.content ?? ''
+            content: latestSlots.get(t.slot.id)?.content ?? ''
           }))
           const valid = articles.filter((a) => a.content.trim())
           if (valid.length > 0) {
@@ -1100,18 +1126,29 @@ function App(): React.JSX.Element {
                 c.index,
                 docContext,
                 `【主编审稿指令】审稿发现问题：${c.problem}。${c.instruction}`,
-                overrides
+                overrides,
+                true
               )
               reviewFixed++
             }
           }
         } catch (err) {
           console.warn('审稿失败（忽略，不影响成品）：', err)
+        } finally {
+          inFlightRef.current.delete(reviewId)
         }
       }
 
+      // 所有入口共用同一条实测适配管线；关联槽也不能绕过版面检查。
+      const generatedTasks = [
+        ...tasks,
+        ...[...continuationGroups.values()].flat(),
+        ...childTasks
+      ]
+      await adaptGeneratedSlots(generatedTasks, docContext, overrides, geometryBefore)
+
       // ---- 质量报告卡（ROADMAP 反馈：让改进可见）----
-      collectReport(reviewFixed, overrides)
+      if (showReport) collectReport(reviewFixed, overrides)
     } finally {
       cancelRef.current = false
       setPhase(null)
@@ -1151,6 +1188,8 @@ function App(): React.JSX.Element {
   // dev 自动化探针：供 CDP 驱动脚本读取当前文档（始终暴露只读函数，无写入口）
   useEffect(() => {
     ;(window as unknown as Record<string, unknown>).__briefyGetDoc = () => layout.doc
+    ;(window as unknown as Record<string, unknown>).__briefyGetFits = () => slotFitsRef.current
+    ;(window as unknown as Record<string, unknown>).__briefyGetSettings = () => settingsRef.current
   })
 
   const isDark = settings?.theme === 'dark'
@@ -1225,6 +1264,7 @@ function App(): React.JSX.Element {
     layout.loadDoc({
       version: 2,
       title: preset.name,
+      layoutMode: 'manual',
       pages: preset.pages.map((p) => ({
         id: crypto.randomUUID(),
         slots: fromPresetSlots(p.slots, settings?.sources ?? [])
@@ -1515,8 +1555,8 @@ function App(): React.JSX.Element {
           <Tooltip
             content={
               layout.doc.layoutMode === 'manual'
-                ? '当前：手动布局——拖拽移动槽位、拖右下角缩放；点此回到自动排布'
-                : '切换到手动布局：像 Word 调图片一样自由拖动槽位位置、拖角缩放大小（当前自动排布位置会固化）'
+                ? '当前：固定版式——生成只适配内容，不改变页数、槽位位置或尺寸；点此切换流式版式'
+                : '当前：流式版式——栏目保持顺序和宽度，内容可推动增高与分页；点此固化当前几何'
             }
             relationship="description"
           >
@@ -1526,7 +1566,7 @@ function App(): React.JSX.Element {
               appearance={layout.doc.layoutMode === 'manual' ? 'primary' : undefined}
               onClick={() => layout.setMode(layout.doc.layoutMode === 'manual' ? 'auto' : 'manual')}
             >
-              {layout.doc.layoutMode === 'manual' ? '手动布局' : '自动排布'}
+              {layout.doc.layoutMode === 'manual' ? '固定版式' : '流式版式'}
             </ToolbarButton>
           </Tooltip>
           <Tooltip content={generating ? `${phase ?? '生成中'}·点击终止全部任务` : '让 AI 填充全部槽位：按各槽位的角色与提示词并行写作；可在设置中配置模型与信息源'} relationship="description">
@@ -1560,15 +1600,13 @@ function App(): React.JSX.Element {
 
         <div className={styles.workspace}>
           <div className={styles.canvasScroll}>
-            {layout.doc.pages
-              .filter((page) => page.id === layout.currentPageId)
-              .map((page) => (
+            {layout.doc.pages.map((page) => (
+              <div key={page.id} className={page.id === layout.currentPageId ? undefined : styles.offscreenPage}>
                 <PageView
-                  key={page.id}
                   page={page}
                   selectedSlotId={layout.selectedSlotId}
                   onSelectSlot={layout.selectSlot}
-                  onOverflow={layout.growSlotOverflow}
+                  onOverflow={layout.doc.layoutMode === 'auto' ? layout.growSlotOverflow : undefined}
                   manual={layout.doc.layoutMode === 'manual'}
                   onMoveSlot={layout.moveSlot}
                   onResizeSlot={layout.resizeSlot}
@@ -1579,7 +1617,8 @@ function App(): React.JSX.Element {
                   pageNo={layout.doc.pages.findIndex((p) => p.id === page.id) + 1}
                   totalPages={layout.doc.pages.length}
                 />
-              ))}
+              </div>
+            ))}
           </div>
           <PropertiesPanel
             slot={layout.selection?.slot ?? null}

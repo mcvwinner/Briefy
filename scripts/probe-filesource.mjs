@@ -28,9 +28,10 @@ await writeFile(DOC_PATH, JSON.stringify(doc, null, 2), 'utf-8')
 log('测试文档已构造:', DOC_PATH)
 
 // ---- 2. CDP 连接，驱动加载与生成 ----
-const connect = async () => {
+const targetUrl = `autodoc=${encodeURIComponent(DOC_PATH)}`
+const connect = async (matchTarget = true) => {
   const list = await fetch('http://127.0.0.1:9222/json').then((r) => r.json())
-  const page = list.find((t) => t.type === 'page' && t.url.includes('localhost:5173') && !t.url.includes('print=1'))
+  const page = list.find((t) => t.type === 'page' && t.url.includes('localhost:5173') && (!matchTarget || t.url.includes(targetUrl)) && !t.url.includes('print=1'))
   if (!page) throw new Error('未找到 Briefy 页面 target')
   const ws = new WebSocket(page.webSocketDebuggerUrl)
   await new Promise((res, rej) => {
@@ -57,17 +58,24 @@ const connect = async () => {
     if (r.result?.exceptionDetails) throw new Error('页面执行异常: ' + JSON.stringify(r.result.exceptionDetails).slice(0, 300))
     return r.result?.result?.value
   }
-  return { evalJs, reconnect: async () => ws.close() && (await connect()) }
+  return { evalJs, close: () => ws.close() }
 }
 
-let cdp = await connect()
+let cdp = await connect(false)
 log('加载测试文档…')
 await cdp.evalJs(`location.href = 'http://localhost:5173/?autodoc=' + encodeURIComponent(${JSON.stringify(DOC_PATH)})`)
-await sleep(2500)
-await connect().then((c) => void (cdp = c))
-await cdp.evalJs(`location.reload()`)
-await sleep(2500)
-await connect().then((c) => void (cdp = c))
+cdp.close()
+cdp = null
+for (let i = 0; i < 30; i++) {
+  await sleep(500)
+  try {
+    cdp = await connect(true)
+    break
+  } catch {
+    if (i === 29) throw new Error('等待文件源文档页面超时')
+  }
+}
+await sleep(1000)
 
 const clicked = await cdp.evalJs(`(() => {
   const btn = [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === '生成')

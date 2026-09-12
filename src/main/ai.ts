@@ -231,10 +231,10 @@ function buildSlotPrompt(
     timelyAnchor,
     `控件建议：${ROLE_WIDGET_HINTS[roleKey] ?? '按栏目定位选用合适控件（见上方控件清单）'}`,
     `要求：内容紧凑、信息密度高、符合报纸文风。全文总体积（含控件折算）严格控制在 ${wordLimit} 字等效以内——这是版面物理容量的硬性上限，超出会被裁切；宁可精炼勿冗长，写完即止。${widgetQuotaHint(quotaOpts)}`,
-    `内容形式：${kind === 'headline' ? headlineFormat : kindRules[kind] ?? kindRules.text}`,
+    `内容形式：${roleKey === 'headline' ? headlineFormat : kindRules[kind] ?? kindRules.text}`,
     `槽位主题要求：${prompt}`,
     // 头条三段式是硬性格式约束，置于提示词末尾以最强权重（AI 对末尾指令遵循率最高）
-    ...(kind === 'headline' ? ['【重要】再强调一次输出格式：只输出 2-3 行——第一行引题、第二行“# 主标题”、第三行可选副题。不要输出小标题、控件或正文段落。'] : [])
+    ...(roleKey === 'headline' ? ['【重要】再强调一次输出格式：只输出 2-3 行——第一行引题、第二行“# 主标题”、第三行可选副题。不要输出小标题、控件或正文段落。'] : [])
   ]
   return sections.filter(Boolean).join('\n')
 }

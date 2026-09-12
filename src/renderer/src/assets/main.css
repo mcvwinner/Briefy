@@ -92,6 +92,28 @@
   background: var(--colorNeutralBackground3, #fafbfc);
 }
 
+/* 数据槽位中多个统计卡横向排列，避免三张卡纵向堆叠挤出固定栏目。 */
+.slot-content-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.slot-content-stats > div {
+  min-width: 0;
+}
+
+.slot-content-stats .widget-stat {
+  height: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 6px 7px;
+}
+
+.slot-content-stats .widget-stat-value {
+  font-size: 12pt;
+}
+
 .widget-stat-label {
   font-size: 9pt;
   color: var(--colorNeutralForeground2, #616161);

@@ -1,11 +1,13 @@
 /**
  * 端到端验证驱动（dev 专用）：通过 CDP 连接 Electron 渲染进程，
  * 加载测试文档 → 点击生成 → 等待全部槽位完成 → 导出 PDF（自动落盘）。
- * 用法：node scripts/e2e.mjs <docPath> <outPdfPath>
+ * 用法：npm run e2e -- <docPath> <outPdfPath>
  * 前置：npm run dev 已运行（主进程已开 9222 CDP 端口）
  */
 import { setTimeout as sleep } from 'node:timers/promises'
 import { stat } from 'node:fs/promises'
+import { estimateQuota, quotaRange, slotWordCapacity } from '../src/shared/parse.ts'
+import { contentKey, geometryEquals, snapshotGeometry } from '../src/shared/layout-policy.ts'
 
 const docPath = process.argv[2] ?? 'C:\\Users\\sr291\\Desktop\\test_data\\每日报刊.briefy'
 const outPath = process.argv[3] ?? 'C:\\Users\\sr291\\Desktop\\test_data\\每日报刊_out.pdf'
@@ -81,6 +83,7 @@ while (Date.now() < deadline) {
 }
 if (!docInfo?.slots) fail('文档未能自动加载')
 log(`文档已加载：${docInfo.pages} 页 / ${docInfo.slots} 槽位`)
+const geometryBefore = await cdp.evalJs(`window.__briefyGetDoc()`)
 
 // ---- 2. 点击生成 ----
 const clicked = await cdp.evalJs(`(() => {
@@ -99,8 +102,8 @@ while (Date.now() < deadline) {
   const st = await cdp.evalJs(`(() => {
     const btn = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === '终止' || b.textContent.trim() === '生成')
     const slots = [...document.querySelectorAll('[data-slot-id]')]
-    const done = slots.filter(s => s.querySelector('[class*="slotContent"]')).length
-    const err = slots.filter(s => s.querySelector('[class*="slotError"]')).length
+    const done = slots.filter(s => s.getAttribute('data-slot-status') === 'done').length
+    const err = slots.filter(s => s.getAttribute('data-slot-status') === 'error').length
     const gen = slots.filter(s => s.textContent.includes('生成中')).length
     return { label: btn?.textContent.trim(), total: slots.length, done, err, gen }
   })()`)
@@ -114,67 +117,42 @@ while (Date.now() < deadline) {
 }
 if (Date.now() >= deadline) fail('总超时：生成未在时限内完成')
 
-// ---- 4. 统计结果 + 质量报告（ROADMAP Q5 最小层） ----
-const result = await cdp.evalJs(`(() => {
-  // 体积统计与 src/shared/parse.ts 的 estimateQuota 同口径（页面上下文内联实现）：
-  // 正文文字 + 控件按占版面积折算等效字数（高度mm×4.5），让字数重新反映槽位体积
-  const WIDGET_HEIGHT_MM = {
-    stat: () => 15,
-    timeline: (p) => 8 * splitCount(p.items),
-    image: () => 32,
-    qrcode: () => 26,
-    toc: (p) => 10 * splitCount(p.items),
-    chart: (p) => 40 + 3 * splitCount(p.data)
-  }
-  const splitCount = (v) => (v ? v.split(';').filter((s) => s.trim()).length : 0)
-  const estimateQuota = (content) => {
-    const CHAR_PER_MM = 4.5
-    let total = 0
-    for (const raw of content.split('\\n')) {
-      const line = raw.trim()
-      if (line.startsWith(':::')) {
-        // v0.34.4 口径对齐渲染层：仅可解析的单行控件按控件折算；无参 ::: 行按普通文字计（不吞正文）
-        const m = line.match(/^:::(\\w+)\\{(.*)\\}\\s*$/)
-        if (m) {
-          const params = {}
-          const pair = /(\\w+)\\s*:\\s*"([^"]*)"/g
-          let mm
-          while ((mm = pair.exec(m[2])) !== null) params[mm[1]] = mm[2]
-          const est = WIDGET_HEIGHT_MM[m[1]]
-          if (est) {
-            total += Math.round(est(params) * CHAR_PER_MM)
-          } else {
-            const base = m[1] === 'quote' ? 12 : 10
-            total += Math.round(base * CHAR_PER_MM) + Object.values(params).join('').replace(/\\s+/g, '').length
-          }
-          continue
-        }
-      }
-      // 表格行按行折算（v0.34.3 与 shared/parse.ts 同口径）：9pt 固定字号行高 ≈5.5mm
-      if (line.startsWith('|')) { total += Math.round(5.5 * CHAR_PER_MM); continue }
-      total += raw.replace(/\\s+/g, '').length
-    }
-    return total
-  }
-  // 字数合格区间（v0.34.4 与 shared/parse.ts 的 quotaRange 同口径）：小槽位比例 85%~115%，大槽位固定冗余
-  const quotaRange = (limit) => limit > 600 ? { min: limit - 100, max: limit + 150 } : { min: Math.round(limit * 0.85), max: Math.round(limit * 1.15) }
+// ---- 4. 统计结果 + 质量报告（直接复用产品共享密度模型，禁止测试侧复制算法） ----
+const rawResult = await cdp.evalJs(`(() => {
   const doc = window.__briefyGetDoc()
   const slots = doc.pages.flatMap(p => p.slots)
   return {
+    doc,
+    layout: window.__briefyGetSettings?.()?.layout ?? {},
+    fits: window.__briefyGetFits?.() ?? {},
     total: slots.length,
     done: slots.filter(s => s.status === 'done').length,
     error: slots.filter(s => s.status === 'error').map(s => ({ role: s.role, msg: (s.content ?? '').slice(0, 200) })),
-    quality: slots.filter(s => s.status === 'done').map(s => ({
-      role: s.role,
-      // 体积统计与渲染层 estimateQuota 同口径：正文 + 控件面积折算
-      len: estimateQuota(s.content ?? ''),
-      limit: Math.round(s.estHeight * 4.5),
-      hasSource: (s.sources?.length ?? 0) > 0,
-      content: s.content ?? ''
-    })),
+    slots,
     usage: window.__briefyUsage ?? null
   }
 })()`)
+const quotaOptsFor = (slot, layout = {}) => ({
+  widthMM: slot.region.width,
+  fontSizePt: layout.fontSizePt,
+  lineHeight: layout.lineHeight,
+  columns: slot.role === 'body' && slot.kind === 'text' ? layout.columns : 1
+})
+const quality = rawResult.slots
+  .filter((slot) => slot.status === 'done')
+  .map((slot) => {
+    const opts = quotaOptsFor(slot, rawResult.layout)
+    return {
+      id: slot.id,
+      role: slot.role,
+      len: estimateQuota(slot.content ?? '', opts),
+      limit: slotWordCapacity(slot.estHeight, opts),
+      hasSource: (slot.sources?.length ?? 0) > 0,
+      content: slot.content ?? '',
+      fit: rawResult.fits[slot.id]
+    }
+  })
+const result = { ...rawResult, quality }
 log(`生成结果：${result.done}/${result.total} 成功`)
 if (result.error.length > 0) {
   console.error('[e2e] 失败槽位：', JSON.stringify(result.error, null, 2))
@@ -198,9 +176,19 @@ function similarity(a, b) {
 
 const q = result.quality
 const issues = []
+if (geometryBefore.layoutMode === 'manual' && !geometryEquals(snapshotGeometry(geometryBefore), snapshotGeometry(result.doc))) {
+  issues.push('[FAIL] 固定版式生成后几何发生变化（页数、槽位位置或尺寸不一致）')
+}
+for (const s of q) {
+  if (!s.fit || s.fit.contentKey !== contentKey(s.content)) {
+    issues.push(`[FAIL] ${s.role}：缺少当前稿件的真实渲染测量`)
+  } else if (s.fit.overflow) {
+    issues.push(`[FAIL] ${s.role}：实测仍溢出，已明确标记而非静默裁切`)
+  }
+}
 // 空内容（纯控件槽位字数为 0 是合法形态，不算空）
 for (const s of q) if (s.len === 0 && !s.content.includes(':::')) issues.push(`[FAIL] ${s.role}：内容为空`)
-// 字数偏差检查（quotaRange 口径 v0.34.4：小槽位 85%~115%，大槽位固定冗余 -100/+150；纯控件槽位跳过）
+// 字数偏差检查：与产品共享 quotaRange 完全同源；真实 fit 是最终判定，估算仅作预警。
 for (const s of q) {
   if (s.len === 0 && s.content.includes(':::')) continue
   const range = quotaRange(s.limit)
@@ -214,7 +202,7 @@ for (let i = 0; i < q.length; i++) {
     if (sim > 0.35) issues.push(`[WARN] ${q[i].role} 与 ${q[j].role} 内容相似度 ${(sim * 100).toFixed(0)}%（疑似重复选题）`)
   }
 }
-// 来源缺失：逐 DOM 槽位核对（"挂源且已完成"与"是否渲染署名"必须一致；只比当前页可见槽位）
+// 来源缺失：逐 DOM 槽位核对（所有页面均已挂载，"挂源且已完成"与"是否渲染署名"必须一致）
 const sourceMismatch = await cdp.evalJs(`(() => {
   const doc = window.__briefyGetDoc()
   const byId = new Map(doc.pages.flatMap(p => p.slots).map(s => [s.id, s]))
@@ -244,7 +232,10 @@ if (issues.length > 0) {
 
 // ---- 5. 导出 PDF（dev 自动落盘） ----
 log('导出 PDF →', outPath)
-const exported = await cdp.evalJs(`window.briefy.exportPdf(window.__briefyGetDoc(), ${JSON.stringify(outPath)})`)
+const exported = await cdp.evalJs(`(() => {
+  const fits = Object.fromEntries(Object.entries(window.__briefyGetFits?.() ?? {}).map(([id, value]) => [id, value.fit]))
+  return window.briefy.exportPdf(window.__briefyGetDoc(), ${JSON.stringify(outPath)}, fits)
+})()`)
 if (!exported) fail('导出返回空（失败或取消）')
 const size = (await stat(exported)).size
 log(`导出成功：${exported}（${(size / 1024).toFixed(1)} KB）`)
@@ -254,4 +245,5 @@ if (result.error.length > 0) {
   console.error('[e2e] 存在生成失败的槽位，需继续迭代')
   process.exit(2)
 }
+if (issues.some((issue) => issue.startsWith('[FAIL]'))) process.exit(3)
 log('✅ 端到端验证通过：生成 + 导出成功')

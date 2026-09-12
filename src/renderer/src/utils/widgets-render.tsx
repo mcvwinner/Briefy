@@ -65,9 +65,8 @@ function Timeline({ params }: { params: Record<string, string> }): ReactNode {
   )
 }
 
-/** 打印/导出模式：图片立即加载。隐藏窗口不滚动，loading="lazy" 的图片永不触发加载 →
- *  PDF 里配图/二维码直接空白。打印窗口挂载前置位，导出结束无需复位（窗口即弃）。
- *  模块级标记而非 Context：只需全局一次性开关，避免为单一布尔层层传 props（v0.32.2 修复） */
+/** 打印/导出或多页离屏实测：图片立即加载。隐藏/离屏页面不滚动，loading="lazy" 的图片
+ * 不会触发加载，会令 PDF 空白或非当前页的高度测量失真。模块级标记避免为单一布尔层层传 props。 */
 let eagerImages = false
 export function setEagerImages(on: boolean): void {
   eagerImages = on

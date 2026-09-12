@@ -25,13 +25,12 @@ import { ROLE_DEFS } from '../../../shared/layout'
 import type { SlotRole } from '../../../shared/layout'
 
 /** 设置分区 */
-type SettingsTab = 'ai' | 'layout' | 'generate' | 'labs' | 'about'
+type SettingsTab = 'ai' | 'layout' | 'generate' | 'about'
 
 const TABS: { id: SettingsTab; label: string }[] = [
   { id: 'ai', label: 'AI 服务' },
   { id: 'layout', label: '版式' },
   { id: 'generate', label: '生成' },
-  { id: 'labs', label: '实验性' },
   { id: 'about', label: '关于' }
 ]
 
@@ -145,8 +144,6 @@ function SettingsDialog({ open, settings, onClose, onSaved }: SettingsDialogProp
   /** 用户直接给编辑的特别指令（v0.30 可控性通道） */
   const [plannerNote, setPlannerNote] = useState('')
   const [reviewerNote, setReviewerNote] = useState('')
-  /** 实验性（v0.34.1 自订阅对话框迁入）：手动布局出刊时自动适配版面 */
-  const [expLayoutFit, setExpLayoutFit] = useState(false)
   /** 职责编辑器展开的角色 */
   const [dutyOpenItems, setDutyOpenItems] = useState<string[]>([])
 
@@ -166,7 +163,6 @@ function SettingsDialog({ open, settings, onClose, onSaved }: SettingsDialogProp
       setReviewModel(settings.editorial?.reviewModel ?? '')
       setPlannerNote(settings.editorial?.plannerNote ?? '')
       setReviewerNote(settings.editorial?.reviewerNote ?? '')
-      setExpLayoutFit(settings.experimentalLayoutFit === true)
     }
   }, [open, settings])
 
@@ -191,8 +187,8 @@ function SettingsDialog({ open, settings, onClose, onSaved }: SettingsDialogProp
         plannerNote: plannerNote.trim() || undefined,
         reviewerNote: reviewerNote.trim() || undefined
       },
-      // 显式存布尔（不省略 false）：出刊逻辑只认全局设置，须能覆盖旧订阅上的遗留字段
-      experimentalLayoutFit: expLayoutFit
+      // v0.35 起统一走版式策略；旧字段仅透传以兼容历史设置，不再控制任何分叉逻辑。
+      experimentalLayoutFit: settings?.experimentalLayoutFit
     }
     try {
       if (window.briefy) {
@@ -458,19 +454,6 @@ function SettingsDialog({ open, settings, onClose, onSaved }: SettingsDialogProp
                 </Button>
               </div>
             </Field>
-          </>
-        )
-      case 'labs':
-        return (
-          <>
-            <Checkbox
-              label="实验性：订阅出刊时自动适配版面（自动调整槽位高度/位置与字号以贴合内容；仅手动布局订阅生效；默认关闭 = 严格保持模板几何，超容内容裁剪+质检标记）"
-              checked={expLayoutFit}
-              onChange={(_, d) => setExpLayoutFit(d.checked === true)}
-            />
-            <p className={styles.hint}>
-              实验性功能在这里灰度开放；验证稳定后会转正到对应分区并移除开关。开关对全部订阅生效（原订阅创建时的勾选已迁入此处）。
-            </p>
           </>
         )
       case 'about':

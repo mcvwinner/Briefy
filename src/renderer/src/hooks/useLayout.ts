@@ -31,10 +31,14 @@ export function useLayout(prefs?: LayoutPrefs) {
   const geo = useMemo<LayoutGeometry>(() => resolveGeometry(prefs), [prefs?.marginMM, prefs?.gapMM])
 
   const updatePage = useCallback((pageId: string, updater: (page: Page) => Page) => {
-    setDoc((prev) => ({
-      ...prev,
-      pages: prev.pages.map((p) => (p.id === pageId ? updater(p) : p))
-    }))
+    setDoc((prev) => {
+      const next = {
+        ...prev,
+        pages: prev.pages.map((p) => (p.id === pageId ? updater(p) : p))
+      }
+      docRef.current = next
+      return next
+    })
   }, [])
 
   /** 全文档摊平重排：所有槽位按顺序贪心装满每页，消除腾挪/调整产生的碎片空白页。
@@ -56,7 +60,30 @@ export function useLayout(prefs?: LayoutPrefs) {
       if (role === 'free') slot.tools = ['getCurrentTime', 'webSearch', 'fetchPage']
       // 单次 setDoc：摊平重排（贪心装满，避免碎片空白页）；手动模式直接追加，位置由用户拖拽调整
       if (doc.layoutMode === 'manual') {
-        updatePage(pageId, (page) => ({ ...page, slots: [...page.slots, slot] }))
+        const page = doc.pages.find((item) => item.id === pageId)
+        if (!page) return
+        const overlapsHorizontally = (candidate: Slot): boolean =>
+          candidate.region.x < slot.region.x + slot.region.width &&
+          candidate.region.x + candidate.region.width > slot.region.x
+        const tail = page.slots
+          .filter(overlapsHorizontally)
+          .reduce(
+            (max, candidate) => Math.max(max, candidate.region.y + candidate.estHeight + (candidate.overflow ?? 0) + geo.gapMM),
+            geo.marginMM
+          )
+        const maxY = geo.pageHeightMM - geo.marginMM - slot.estHeight
+        if (tail <= maxY) {
+          slot.region.y = tail
+          updatePage(pageId, (current) => ({ ...current, slots: [...current.slots, slot] }))
+        } else {
+          const nextPage = createEmptyPage()
+          slot.region.y = geo.marginMM
+          nextPage.slots.push(slot)
+          const next = { ...doc, pages: [...doc.pages, nextPage] }
+          docRef.current = next
+          setDoc(next)
+          setCurrentPageId(nextPage.id)
+        }
         setSelectedSlotId(slot.id)
         return
       }
@@ -76,14 +103,19 @@ export function useLayout(prefs?: LayoutPrefs) {
   /** 更新槽位（全文档按 slotId 定位）：生成期间溢出重排可能把槽位挪页，
    *  不能用旧 pageId 查找，否则内容写丢失 → UI 永远卡在"生成中" */
   const updateSlot = useCallback((slotId: string, patch: Partial<Slot>): void => {
-    setDoc((prev) => ({
-      ...prev,
-      pages: prev.pages.map((p) =>
+    setDoc((prev) => {
+      const next = {
+        ...prev,
+        pages: prev.pages.map((p) =>
         p.slots.some((s) => s.id === slotId)
           ? { ...p, slots: p.slots.map((s) => (s.id === slotId ? { ...s, ...patch } : s)) }
           : p
-      )
-    }))
+        )
+      }
+      // 异步生成/审稿必须立即读到刚写入的内容，不能等下一次 React 渲染。
+      docRef.current = next
+      return next
+    })
   }, [])
 
   /** 改宽度模式：重推导 region + 重新流式排布 + 自动分页（手动模式下只改 region 不重排）。
@@ -150,8 +182,8 @@ export function useLayout(prefs?: LayoutPrefs) {
     [doc, currentPageId, geo, repaginateAll]
   )
 
-  /** 切换布局模式：manual = 固化当前自动排布结果（region.y 已含排布坐标），之后用户自由拖拽；
-   *  auto = 回到流式排布并重新分页（手动位置放弃） */
+  /** 切换版式策略：manual = 固定当前几何并允许自由拖拽；
+   *  auto = 回到流式排布并重新分页（固定位置放弃） */
   const setMode = useCallback(
     (mode: 'auto' | 'manual'): void => {
       if (mode === doc.layoutMode) return
@@ -272,6 +304,7 @@ export function useLayout(prefs?: LayoutPrefs) {
   const newDoc = useCallback((): LayoutDoc => {
     const fresh = createEmptyDoc()
     setDoc(fresh)
+    docRef.current = fresh
     setCurrentPageId(fresh.pages[0].id)
     setSelectedSlotId(null)
     return fresh
@@ -291,6 +324,7 @@ export function useLayout(prefs?: LayoutPrefs) {
             }))
           }
     setDoc(next)
+    docRef.current = next
     setCurrentPageId(next.pages[0]?.id ?? '')
     setSelectedSlotId(null)
     return next

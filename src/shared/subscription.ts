@@ -50,7 +50,7 @@ export interface Subscription {
   /** 分层记忆：recent 最近 3 期详细摘要；digest 更早期的滚动总览 */
   memory: { recent: IssueSummary[]; digest: string }
   issues: IssueRecord[]
-  /** 已废弃（v0.34.1 迁至 AiSettings.experimentalLayoutFit 全局设置）：保留字段防旧数据报错，出刊逻辑已改读全局设置 */
+  /** @deprecated v0.35 起不再生效，仅保留以兼容旧订阅数据。 */
   experimentalLayoutFit?: boolean
 }
 

@@ -286,7 +286,7 @@ function PropertiesPanel({
       </Field>
 
       <Field
-        label="宽度（版式自动重排）"
+        label="栏目宽度"
         hint={{ children: '全宽 = 独占一行；半栏 = 左右并排；侧栏 = 窄条侧边' } as never}
         className={styles.fieldGap}
       >

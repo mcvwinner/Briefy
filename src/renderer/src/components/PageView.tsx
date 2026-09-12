@@ -76,6 +76,18 @@ function SlotContent({ kind, content, role }: { kind: string; content: string; r
     if (rows) return renderTable(rows)
   }
   const nodes = parseContent(content)
+  // 数据栏通常是导语 + 多张统计卡；把连续统计卡放进网格，避免纵向堆叠浪费高度。
+  if (role === 'stats') {
+    const firstStat = nodes.findIndex((node) => node.type === 'widget' && node.id === 'stat')
+    if (firstStat >= 0 && nodes.slice(firstStat).every((node) => node.type === 'widget' && node.id === 'stat')) {
+      return (
+        <>
+          {renderContentNodes(nodes.slice(0, firstStat))}
+          <div className="slot-content-stats">{renderContentNodes(nodes.slice(firstStat))}</div>
+        </>
+      )
+    }
+  }
   return <>{renderContentNodes(nodes)}</>
 }
 
@@ -236,13 +248,13 @@ function SlotBox({
   onPointerDown: (e: React.PointerEvent) => void
   onOverflow?: (slotId: string, deltaMm: number) => void
   /** 实测适配状态回写（字号比例/是否溢出/内容实际高度；质量报告与版面适配以实测为准） */
-  onFit?: (slotId: string, fitScale: number, overflow: boolean, actualMm: number) => void
+  onFit?: (slotId: string, fitScale: number, overflow: boolean, actualMm: number, content?: string) => void
   children: ReactNode
 }): React.JSX.Element {
   const styles = useStyles()
   const [hovered, setHovered] = useState(false)
   const ref = useRef<HTMLDivElement | null>(null)
-  /** 字号微调（v0.22，双向收敛）：内容略少→增大字号填满槽位（上限 125%）；略多→缩小字号（下限 70%）；
+  /** 字号微调（v0.35）：仅在 85%–110% 可读范围内吸收轻微偏差；明显偏差交给实测重写。
    *  到下限仍装不下才回写 onOverflow 放宽槽位（版面重排）。增长过头会回退一步并锁定，防增/缩来回震荡。
    *  缩放系数经 CSS 变量 --briefy-fit 传递，内容 div 用 calc(字号 * var(--briefy-fit)) 引用 */
   const [fitScale, setFitScale] = useState(1)
@@ -251,6 +263,8 @@ function SlotBox({
   // 打印模式（所见即所得）：字号缩放系数直接用主窗口回传的终值——本地 fitScale 恒为 1，
   // 若仍用它渲染，PDF 里会以 100% 字号重排，内容变高把后续槽位挤出纸张被裁剪（v0.32.2 修复）
   const effectiveFit = printScale ?? fitScale
+  const MIN_FIT = 0.85
+  const MAX_FIT = 1.1
   useEffect(() => {
     if (printScale !== undefined) return // 打印模式：fitScale 锁定，不响应内容变化
     setFitScale(1)
@@ -258,20 +272,22 @@ function SlotBox({
     lockedRef.current = false
   }, [slot.content, printScale])
   // 每次渲染后测量（无依赖数组）：内容/字号变化都重测；达标时不触发 setState，自然收敛。
-  // 用 scrollHeight：自动模式（内容撑开）= offsetHeight；手动模式（高度固定+hidden）= 完整内容高
+  // 必须量内容节点本身：固定版式的外框被强制定高，外框 scrollHeight 在短稿时至少等于框高，
+  // 会把大量留白误报成“刚好装满”；内容节点的真实高度同时适用于短稿与溢出长稿。
   useLayoutEffect(() => {
     const el = ref.current
     if (!el) return
+    const contentEl = el.querySelector<HTMLElement>('[data-slot-content]')
+    const actualMm = pxToMm(contentEl?.getBoundingClientRect().height ?? el.scrollHeight)
     if (printScale !== undefined) {
       // 打印模式（所见即所得）：fitScale 锁定为主窗口终值，禁用测量收敛
-      if (slot.status === 'done') onFit?.(slot.id, printScale, false, pxToMm(el.scrollHeight))
+      if (slot.status === 'done') onFit?.(slot.id, printScale, false, actualMm, slot.content)
       return
     }
-    const actualMm = pxToMm(el.scrollHeight)
     const limit = slot.estHeight + (slot.overflow ?? 0)
     // 自由创作槽（v0.29）：不限字数格式——跳过字号缩放与溢出腾挪，内容自然流
     if (slot.role === 'free') {
-      if (slot.status === 'done') onFit?.(slot.id, 1, false, actualMm)
+      if (slot.status === 'done') onFit?.(slot.id, 1, false, actualMm, slot.content)
       return
     }
     let overflowing = false
@@ -280,29 +296,29 @@ function SlotBox({
         // 增字号尝试过头：回退一步（上一个安全值）并锁定，不再增长
         growingRef.current = false
         lockedRef.current = true
-        setFitScale((s) => Math.max(0.7, s / 1.1))
-      } else if (fitScale > 0.71) {
-        setFitScale((s) => Math.max(0.7, s * 0.9))
-      } else if (onOverflow) {
-        onOverflow(slot.id, Math.ceil(actualMm - limit))
+        setFitScale((s) => Math.max(MIN_FIT, s / 1.05))
+      } else if (fitScale > MIN_FIT + 0.01) {
+        setFitScale((s) => Math.max(MIN_FIT, s * 0.92))
+      } else {
         overflowing = true
+        onOverflow?.(slot.id, Math.ceil(actualMm - limit))
       }
     } else if (
       actualMm < limit - 3 &&
-      fitScale < 1.24 &&
+      fitScale < MAX_FIT - 0.01 &&
       !lockedRef.current &&
       // 富媒体槽位不增字号（v0.34.2 用户反馈）：图片/二维码/图表/表格随字号 zoom 联动放大，
       // 图片变糊、图表占版失衡——这类槽位留白就留白，不做放大填充（缩小方向不受影响）
       !hasRichMedia(slot.content)
     ) {
-      // 留白超过 3mm 才增字号（避免小留白抖动），步进 1.1，上限 125%
+      // 留白超过 3mm 才增字号（避免小留白抖动），上限 110%，避免破坏排版层次。
       growingRef.current = true
-      setFitScale((s) => Math.min(1.25, s * 1.1))
+      setFitScale((s) => Math.min(MAX_FIT, s * 1.05))
     } else {
       growingRef.current = false
     }
     // 实测结果回写（App 端去重，同值不触发重渲染）；生成中不上报（内容未完，无适配意义）
-    if (slot.status === 'done') onFit?.(slot.id, fitScale, overflowing, actualMm)
+    if (slot.status === 'done') onFit?.(slot.id, fitScale, overflowing, actualMm, slot.content)
   })
   return (
     <div
@@ -314,6 +330,7 @@ function SlotBox({
         ['--briefy-fit' as string]: effectiveFit,
         ...(fillHeight ? { height: '100%', overflow: 'hidden' } : {})
       } as React.CSSProperties}
+      data-slot-status={slot.status}
       onPointerDown={onPointerDown}
       onPointerEnter={() => setHovered(true)}
       onPointerLeave={() => setHovered(false)}
@@ -331,14 +348,14 @@ interface PageViewProps {
   onSelectSlot: (id: string | null) => void
   /** 槽位实际高度超出预估时回写（触发重新流式排布与分页）；打印视图不传 */
   onOverflow?: (slotId: string, deltaMm: number) => void
-  /** 手动布局模式：槽位绝对定位，可拖拽移动/缩放；缺省 = 自动流式排布 */
+  /** 固定版式（底层 manual）：槽位绝对定位，可拖拽移动/缩放；缺省 = 流式版式 */
   manual?: boolean
   /** 手动模式：拖拽结束提交位置（跨页方向 prev/next 由上层处理） */
   onMoveSlot?: (slotId: string, x: number, y: number, cross?: 'prev' | 'next') => void
   /** 手动模式：拖角结束提交尺寸 */
   onResizeSlot?: (slotId: string, width: number, estHeight: number) => void
   /** 实测适配状态回写（字号比例/溢出/内容实际高度；质量报告与版面适配以实测为准）；打印视图不传 */
-  onFit?: (slotId: string, fitScale: number, overflow: boolean, actualMm: number) => void  /** 打印视图：主窗口回写的每槽 fitScale 终值（所见即所得——打印窗口禁用收敛循环） */
+  onFit?: (slotId: string, fitScale: number, overflow: boolean, actualMm: number, content?: string) => void  /** 打印视图：主窗口回写的每槽 fitScale 终值（所见即所得——打印窗口禁用收敛循环） */
   printFits?: Record<string, number>  /** 版式偏好（页边距/栏距/字体/字号/行距/黑白优先/页眉页脚）；缺省 = 内置默认 */
   prefs?: LayoutPrefs
   /** 自定义角色库（徽章显示自定义角色名） */
@@ -366,7 +383,7 @@ function groupColumns(slots: Slot[]): { full: Slot[]; left: Slot[]; right: Slot[
   return { full, left, right }
 }
 
-/** A4 页面：全宽槽位纵向流 + 左右半栏真实并排；手动布局模式下槽位绝对定位可拖拽 */
+/** A4 页面：流式版式按列排布；固定版式下槽位绝对定位且生成不改变几何。 */
 function PageView({ page, selectedSlotId, onSelectSlot, onOverflow, onFit, printFits, manual, onMoveSlot, onResizeSlot, prefs, customRoles, docTitle, pageNo, totalPages }: PageViewProps): React.JSX.Element {
   const styles = useStyles()
   const { full, left, right } = groupColumns(page.slots)
@@ -390,7 +407,7 @@ function PageView({ page, selectedSlotId, onSelectSlot, onOverflow, onFit, print
   // 来源署名显示（v0.34.1）：默认显示（undefined = 现有稳定体验）
   const showSources = prefs?.showSources !== false
 
-  // ---- 手动布局：拖拽移动 / 拖角缩放（mm 与 px 互转基于 sheet 实际宽度）----
+  // ---- 固定版式：拖拽移动 / 拖角缩放（mm 与 px 互转基于 sheet 实际宽度）----
   const mmPerPx = (): number => 210 / (sheetRef.current?.clientWidth ?? 794)
   const startDrag = (e: React.PointerEvent, slot: Slot, mode: 'move' | 'resize'): void => {
     if (!manual) return
@@ -507,6 +524,7 @@ function PageView({ page, selectedSlotId, onSelectSlot, onOverflow, onFit, print
       {slot.status === 'done' && slot.content ? (
         <div
           className={styles.slotContent}
+          data-slot-content
           style={{
             fontFamily: font,
             lineHeight,
@@ -575,7 +593,7 @@ function PageView({ page, selectedSlotId, onSelectSlot, onOverflow, onFit, print
   // 无半栏槽位时的兜底：只渲染 full 流
   if (rows.length === 0) full.forEach((s) => rows.push(renderSlot(s)))
 
-  // 手动布局：槽位绝对定位（拖拽预览实时生效），跳过自动流式排布
+  // 固定版式：槽位绝对定位（拖拽预览实时生效），跳过流式排布
   const manualNodes: React.JSX.Element[] | null = manual
     ? page.slots.map((slot) => {
         const p = preview?.id === slot.id ? preview : null

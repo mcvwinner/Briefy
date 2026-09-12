@@ -91,8 +91,7 @@ export interface AiSettings {
   editorial?: EditorialPrefs
   /** 自定义角色库（用户反馈：支持添加新角色） */
   customRoles?: CustomRole[]
-  /** 实验性（v0.34.1，自订阅创建对话框迁入）：手动布局出刊时自动适配版面——调整槽位高度/位置与字号以贴合内容。
-   *  默认关 = 严格保持模板几何（超容裁剪+质检标记）。仅订阅出刊链路使用 */
+  /** @deprecated v0.35 起已被统一版式策略取代；仅为读取旧 settings.json 保留，不再生效。 */
   experimentalLayoutFit?: boolean
 }
 

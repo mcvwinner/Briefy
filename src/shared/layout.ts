@@ -68,7 +68,7 @@ export interface Page {
   slots: Slot[]
 }
 
-/** 布局模式：auto = 流式自动排布+分页；manual = 用户拖拽定位（类似 Word 调图片） */
+/** 底层兼容值：auto = 流式版式；manual = 固定版式（用户几何是硬约束） */
 export type LayoutMode = 'auto' | 'manual'
 
 /** 设计文档 v2（保存即 .briefy 文件内容） */
@@ -93,7 +93,8 @@ export function createEmptyPage(): Page {
 }
 
 export function createEmptyDoc(): LayoutDoc {
-  return { version: 2, title: '未命名报纸', pages: [createEmptyPage()] }
+  // v0.35：用户设计的几何默认是硬约束；内部沿用 manual 值兼容 v2 文件。
+  return { version: 2, title: '未命名报纸', layoutMode: 'manual', pages: [createEmptyPage()] }
 }
 
 export function createSlot(role: SlotRole, region: Slot['region'], estHeight: number): Slot {
@@ -241,31 +242,6 @@ export function paginate(pages: Page[], geo: LayoutGeometry = resolveGeometry())
 }
 
 // ---------- 旧格式迁移 ----------
-
-/**
- * 手动布局单页列内流式重排（v0.31 订阅版面适配）：
- * 保持槽位 x/width/列归属/列内顺序不变，y 按列内顺序累加重排——
- * 每列第一个槽位 y 锚定原位（保留用户的版面起点），后续槽位紧随其下（消除空隙/吸收增高）。
- * 不丢槽位、不改分页、不改列结构——只动槽位的纵向位置。
- */
-export function reflowManualPage(slots: Slot[], geo: LayoutGeometry = resolveGeometry()): Slot[] {
-  const colKey = (s: Slot): number => Math.round(s.region.x / 10)
-  const tails = new Map<number, number>()
-  return slots.map((s) => {
-    const key = colKey(s)
-    let y = s.region.y
-    const tail = tails.get(key)
-    if (tail === undefined) {
-      // 列内第一个槽：锚定原位（保留用户的版面起点）
-      tails.set(key, y + s.estHeight + (s.overflow ?? 0) + geo.gapMM)
-    } else {
-      // 后续槽：紧随上一槽之下（消除空隙/吸收增高）
-      y = Math.max(tail, y)
-      tails.set(key, y + s.estHeight + (s.overflow ?? 0) + geo.gapMM)
-    }
-    return { ...s, region: { ...s.region, y } }
-  })
-}
 
 /** 旧版 Block（v1）最小结构 */
 interface LegacyBlock {

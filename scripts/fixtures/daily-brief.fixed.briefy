@@ -1,0 +1,17 @@
+{
+  "version": 2,
+  "title": "每日早报·固定版式回归",
+  "layoutMode": "manual",
+  "pages": [
+    {
+      "id": "daily-page-1",
+      "slots": [
+        { "id": "daily-headline", "role": "headline", "region": { "x": 15, "y": 15, "width": 180 }, "estHeight": 42, "kind": "text", "prompt": "今日最重要的新闻，包含引题、主标题和副题", "tools": ["getCurrentTime", "webSearch", "fetchPage"], "sources": [], "status": "empty" },
+        { "id": "daily-left", "role": "body", "region": { "x": 15, "y": 65, "width": 86 }, "estHeight": 132, "kind": "text", "prompt": "今日科技与人工智能重要进展，事实准确、附来源", "tools": ["getCurrentTime", "webSearch", "fetchPage"], "sources": [], "status": "empty" },
+        { "id": "daily-right", "role": "body", "region": { "x": 109, "y": 65, "width": 86 }, "estHeight": 82, "kind": "text", "prompt": "今日经济与产业动态，避免与左栏重复", "tools": ["getCurrentTime", "webSearch", "fetchPage"], "sources": [], "status": "empty" },
+        { "id": "daily-stats", "role": "stats", "region": { "x": 109, "y": 155, "width": 86 }, "estHeight": 42, "kind": "text", "prompt": "三个值得关注的当日数据，用统计卡呈现", "tools": ["getCurrentTime", "webSearch"], "sources": [], "status": "empty" },
+        { "id": "daily-briefs", "role": "briefs", "region": { "x": 15, "y": 205, "width": 180 }, "estHeight": 57, "kind": "text", "prompt": "五条今日快讯，每条一句话", "tools": ["getCurrentTime", "webSearch", "fetchPage"], "sources": [], "status": "empty" }
+      ]
+    }
+  ]
+}

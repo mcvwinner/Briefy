@@ -29,11 +29,21 @@ const ev = async (ex) => {
 }
 const st = await ev(`(() => {
   const doc = window.__briefyGetDoc()
+  const fits = window.__briefyGetFits?.() ?? {}
   const btn = [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === '终止' || b.textContent.trim() === '生成')
   return JSON.stringify({
     genBtn: btn ? btn.textContent.trim() : null,
     title: doc.title,
-    slots: doc.pages.flatMap((p) => p.slots).map((x) => x.role + ':' + x.status + ':est' + x.estHeight + ':y' + Math.round(x.region.y))
+    pages: doc.pages.length,
+    slots: doc.pages.flatMap((p) => p.slots).map((x) => ({
+      id: x.id,
+      role: x.role,
+      status: x.status,
+      rewrites: x.rewriteCount ?? 0,
+      estHeight: x.estHeight,
+      y: Math.round(x.region.y),
+      fit: fits[x.id] ?? null
+    }))
   })
 })()`)
 console.log(st)

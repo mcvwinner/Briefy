@@ -103,7 +103,7 @@ export const PRESETS: Preset[] = [
 /** 由预设构建完整 LayoutDoc（v2） */
 export function buildDocFromPreset(preset: Preset): LayoutDoc {
   const pages: Page[] = buildPages(preset.slots)
-  return { version: 2, title: preset.name, pages }
+  return { version: 2, title: preset.name, layoutMode: 'manual', pages }
 }
 
 // 保留类型导出，供 App 里类型标注

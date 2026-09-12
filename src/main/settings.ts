@@ -37,7 +37,7 @@ export async function readSettings(): Promise<AiSettings> {
             (r) => r && typeof r === 'object' && typeof (r as { name?: unknown }).name === 'string'
           ) as AiSettings['customRoles'])
         : undefined
-      // 实验开关（v0.34.1 自订阅对话框迁入）：显式布尔透传（false 也保留，能覆盖旧订阅遗留字段）
+      // v0.35 已废弃的旧字段：只为无损读取历史 settings.json 透传，不参与运行逻辑。
       const experimentalLayoutFit = typeof s.experimentalLayoutFit === 'boolean' ? s.experimentalLayoutFit : undefined
       return {
         apiKey: typeof apiKey === 'string' ? apiKey : '',
